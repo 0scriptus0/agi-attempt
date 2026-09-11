@@ -26,3 +26,5 @@ The architecture is designed around this separation so that lifetime experience 
 ## Status
 
 This is a living research document. Architectural decisions may change as experiments provide better evidence.
+
+]
