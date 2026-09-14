@@ -1,6 +1,5 @@
 data:
   sft:
-    - datasets/domains/combined_sft.jsonl
     - datasets/reasoning/reasoning_agentic_sft.jsonl
     - datasets/domains/memory_annotation_sft.jsonl
     - datasets/domains/self_v2_aligned.jsonl
