@@ -2,12 +2,14 @@ data:
   sft:
     - datasets/reasoning/reasoning_agentic_sft.jsonl
     - datasets/reasoning/lewi_cognitive_loop_sft.jsonl
+    - datasets/reasoning/lewi_agentic_precision_sft_v2.jsonl
     - datasets/domains/memory_annotation_sft.jsonl
     - datasets/domains/self_v2_aligned.jsonl
 
   preference:
     - datasets/domains/preference_pairs.jsonl
     - datasets/reasoning/lewi_cognitive_loop_preference.jsonl
+    - datasets/reasoning/lewi_agentic_precision_preference_v2.jsonl
 
   evaluation:
     - datasets/domains/heldout_eval.jsonl
