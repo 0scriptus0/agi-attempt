@@ -5,6 +5,9 @@ on:
     branches: [main, lewi3-dataset-expansion]
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -13,6 +16,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Materialize generated Lewi v4 datasets
+        if: ${{ !startsWith(github.event.head_commit.message, '[bot] Generate Lewi v4') }}
+        run: python scripts/generate_lewi_v4_quality.py
+      - name: Commit generated Lewi v4 dataset
+        if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, '[bot] Generate Lewi v4') }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add datasets/reasoning/lewi_agentic_state_transition_sft_v4_generated.jsonl
+          if git diff --cached --quiet; then
+            echo "Generated dataset is already up to date."
+          else
+            git commit -m "[bot] Generate Lewi v4 state-transition SFT dataset"
+            git push
+          fi
       - name: Validate JSONL datasets and config
         run: python scripts/validate_training_data.py
       - name: Compile training pipeline
