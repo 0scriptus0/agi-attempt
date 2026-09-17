@@ -1,0 +1,14 @@
+# training (train.py)
+torch
+transformers>=4.44
+datasets
+peft
+bitsandbytes
+pyyaml
+trl  # only needed for --stage dpo
+
+# agent API (api.py)
+fastapi
+uvicorn
+anthropic
+pydantic

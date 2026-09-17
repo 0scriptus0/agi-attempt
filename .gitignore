@@ -1,0 +1,6 @@
+.venv312.venv312/
+.venv312/
+.venv312/
+checkpoints/
+__pycache__/
+*.pyc
