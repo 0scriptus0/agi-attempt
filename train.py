@@ -2,6 +2,7 @@
 """Lewi QLoRA SFT/DPO training pipeline."""
 from __future__ import annotations
 import argparse
+import gc
 import json
 import time
 from pathlib import Path
@@ -169,6 +170,10 @@ def run_sft(args: argparse.Namespace) -> None:
     summary = {"run_id": run_id, "stage": "sft", "base_model": args.base_model, "num_examples": len(dataset), "epochs": args.epochs, "final_loss": trainer.state.log_history[-1].get("loss") if trainer.state.log_history else None, "output_dir": args.output_dir, "timestamp": time.time()}
     with (LEARNING_CURVE / f"{run_id}_summary.json").open("w", encoding="utf-8") as handle: json.dump(summary, handle, indent=2)
     print(f"Saved adapter to {args.output_dir}")
+    del trainer
+    del model
+    gc.collect()
+    if torch.cuda.is_available(): torch.cuda.empty_cache()
     run_eval(args.base_model, args.output_dir, config, run_id, tokenizer)
 
 
@@ -185,16 +190,22 @@ def run_eval(base_model: str, adapter_dir: str, config: dict, run_id: str, token
     base = AutoModelForCausalLM.from_pretrained(base_model, quantization_config=bnb_config, device_map={"": 0})
     model = PeftModel.from_pretrained(base, adapter_dir); model.eval()
     outputs = []
-    for record in records:
-        messages = [{"role": "system", "content": DEFAULT_AGENT_SYSTEM}, {"role": "user", "content": str(record["prompt"])}]
-        chat_result = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt")
-        input_ids = chat_result["input_ids"] if hasattr(chat_result, "keys") else chat_result
-        attention_mask = chat_result.get("attention_mask") if hasattr(chat_result, "get") else None
-        input_ids = input_ids.to("cuda")
-        if attention_mask is not None: attention_mask = attention_mask.to("cuda")
-        with torch.no_grad(): generated = model.generate(input_ids, attention_mask=attention_mask, max_new_tokens=300, do_sample=False, pad_token_id=tokenizer.pad_token_id)
-        text = tokenizer.decode(generated[0][input_ids.shape[1]:], skip_special_tokens=True)
-        outputs.append({"id": record.get("id"), "category": record.get("category"), "prompt": record["prompt"], "success_criteria": record.get("success_criteria"), "model_output": text})
+    try:
+        for record in records:
+            messages = [{"role": "system", "content": DEFAULT_AGENT_SYSTEM}, {"role": "user", "content": str(record["prompt"])}]
+            chat_result = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, return_tensors="pt")
+            input_ids = chat_result["input_ids"] if hasattr(chat_result, "keys") else chat_result
+            attention_mask = chat_result.get("attention_mask") if hasattr(chat_result, "get") else None
+            input_ids = input_ids.to("cuda")
+            if attention_mask is not None: attention_mask = attention_mask.to("cuda")
+            with torch.no_grad(): generated = model.generate(input_ids, attention_mask=attention_mask, max_new_tokens=300, do_sample=False, pad_token_id=tokenizer.pad_token_id)
+            text = tokenizer.decode(generated[0][input_ids.shape[1]:], skip_special_tokens=True)
+            outputs.append({"id": record.get("id"), "category": record.get("category"), "prompt": record["prompt"], "success_criteria": record.get("success_criteria"), "model_output": text})
+    finally:
+        del model
+        del base
+        gc.collect()
+        torch.cuda.empty_cache()
     eval_log = LEARNING_CURVE / f"{run_id}_eval_outputs.jsonl"
     with eval_log.open("w", encoding="utf-8") as handle:
         for output in outputs: handle.write(json.dumps(output, ensure_ascii=False) + "\n")
