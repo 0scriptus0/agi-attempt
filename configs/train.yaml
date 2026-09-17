@@ -11,6 +11,7 @@ data:
     - datasets/domains/preference_pairs.jsonl
     - datasets/reasoning/lewi_cognitive_loop_preference.jsonl
     - datasets/reasoning/lewi_agentic_precision_preference_v2.jsonl
+    - datasets/reasoning/lewi_agentic_trajectory_preference_v3.jsonl
 
   evaluation:
     - datasets/domains/heldout_eval.jsonl
