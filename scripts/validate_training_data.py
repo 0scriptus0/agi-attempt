@@ -84,10 +84,13 @@ def validate_sft(path: Path) -> int:
 def validate_preferences(path: Path) -> int:
     records = load_jsonl(path)
     for record in records:
-        assert {"input", "chosen", "rejected"}.issubset(record), f"{path}: incomplete preference record"
+        assert {"chosen", "rejected"}.issubset(record), f"{path}: incomplete preference record"
+        if "input" not in record:
+            assert "prompt" in record, f"{path}: preference needs input or prompt"
+        prompt = str(record.get("input", record.get("prompt", ""))).strip()
         chosen = str(record["chosen"]).strip()
         rejected = str(record["rejected"]).strip()
-        assert chosen and rejected, f"{path}: empty preference response"
+        assert prompt and chosen and rejected, f"{path}: empty preference field"
         assert chosen != rejected, f"{path}: identical preference pair"
         # Legacy preference datasets are free-form text; v4 state-transition pairs are JSON actions.
         chosen_action = parse_action(chosen)
