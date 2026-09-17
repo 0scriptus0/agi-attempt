@@ -48,7 +48,7 @@ def parse_action(text: str) -> dict:
     try:
         action = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise AssertionError(f"assistant trajectory turn is not JSON: {text!r}") from exc
+        raise AssertionError(f"agent action is not JSON: {text!r}") from exc
     if not isinstance(action, dict) or action.get("action") not in ALLOWED_ACTIONS:
         raise AssertionError(f"invalid agent action: {action!r}")
     return action
@@ -69,9 +69,9 @@ def validate_sft(path: Path) -> int:
                 if turn["role"] == "assistant":
                     parse_action(str(turn.get("content", "")))
         elif {"instruction", "input", "assistant_response"}.issubset(record):
-            parse_action(str(record["assistant_response"]))
+            assert str(record["assistant_response"]).strip(), f"{path}: assistant response is empty"
         elif {"memory_type", "content"}.issubset(record):
-            assert record.get("content"), f"{path}: memory content is empty"
+            assert str(record.get("content", "")).strip(), f"{path}: memory content is empty"
         else:
             raise AssertionError(f"{path}: unsupported SFT schema: {record.keys()}")
     return len(records)
