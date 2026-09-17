@@ -5,7 +5,7 @@ data:
     - datasets/reasoning/lewi_agentic_precision_sft_v2.jsonl
     - datasets/reasoning/lewi_agentic_trajectory_sft_v3.jsonl
     - datasets/reasoning/lewi_agentic_state_transition_sft_v4.jsonl
-    - datasets/reasoning/lewi_agentic_state_transition_sft_v4_expanded.jsonl
+    - datasets/reasoning/lewi_agentic_state_transition_sft_v4_generated.jsonl
     - datasets/domains/memory_annotation_sft.jsonl
     - datasets/domains/self_v2_aligned.jsonl
 
@@ -15,6 +15,7 @@ data:
     - datasets/reasoning/lewi_agentic_precision_preference_v2.jsonl
     - datasets/reasoning/lewi_agentic_trajectory_preference_v3.jsonl
     - datasets/reasoning/lewi_agentic_state_transition_preference_v4.jsonl
+    - datasets/reasoning/lewi_agentic_state_transition_preference_v4_generated.jsonl
 
   evaluation:
     - datasets/domains/heldout_eval.jsonl
