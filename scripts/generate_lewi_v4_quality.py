@@ -31,7 +31,7 @@ recovery = [
 ("missing.yaml","deploy/app.yaml exists","The assumed path is invalid; use the discovered path.",{"action":"file_read","path":"workspace/deploy/app.yaml"}),
 ("large retrieval timed out twice","monthly files are available","Repeated failure shows no progress; narrow retrieval.",{"action":"file_read","path":"workspace/reports/month-01.md"}),
 ("undefined variable","referenced before assignment","Fix initialization before retesting.",{"action":"code_exec","code":"initialize the variable and rerun the focused test"}),
-("401 integration failure","test client omitted its token","Repair authentication setup before rerunning.",{"action":"code_exec","code":"provide the test token and rerun integration"}),
+("401 integration failure","test client omitted its token","Repair authentication setup before rerunning integration.",{"action":"code_exec","code":"provide the test token and rerun integration"}),
 ("one test fixed, three regressions","all regressions share a helper","Revise the hypothesis and isolate the helper change.",{"action":"code_exec","code":"narrow the helper change and rerun affected tests"}),
 ("migration says table exists","history shows it already ran","Treat the migration as applied; do not repeat it.",{"action":"reason","content":"Continue from the recorded migration state."}),
 ("empty broad query","scoped query returns records","Use the successful scoped query as new evidence.",{"action":"memory_search","query":"scoped records for current task"}),
@@ -98,7 +98,7 @@ for n in range(4):
         add("state_propagation", [{"role":"user","content":f"Step A produces {key}={value}; {consumer} still has a placeholder."},{"role":"assistant","content":j({"action":"reason","content":"Use concrete runtime state instead of the stale placeholder."})},{"role":"user","content":f"OBSERVATION: {key}={value}."},{"role":"assistant","content":j({"action":"reason","content":f"Propagate {value} into {consumer}."})},{"role":"assistant","content":j({"action":"code_exec","code":f"run {consumer} using {value}"})}])
 
 unc = [("two records share a name","identifier lookup selects record B"),("sources disagree","newer authoritative source documents the value"),("tool omits a field","follow-up query supplies it"),("cache conflicts with source","newer timestamp supports source"),("two formats are possible","task specification selects one"),("memory conflicts with docs","current docs apply"),("two test causes are plausible","focused reproduction isolates the boundary"),("two repositories match","canonical metadata identifies one"),("two endpoints appear active","runtime metadata identifies active endpoint"),("file exists twice","manifest identifies authoritative path")]
-for n in range(4):
+for n in range(3):
     for ambiguity,resolution in unc:
         add("uncertainty", [{"role":"user","content":f"Evidence is ambiguous because {ambiguity}."},{"role":"assistant","content":j({"action":"reason","content":"Gather discriminating evidence instead of inventing a state."})},{"role":"user","content":f"OBSERVATION: {resolution}."},{"role":"assistant","content":j({"action":"reason","content":"Update the working state from the new evidence."})},{"role":"assistant","content":j({"action":"final","content":"The ambiguity is resolved using the new evidence."})}])
 
