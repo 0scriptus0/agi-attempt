@@ -58,7 +58,8 @@ def validate_sft(path: Path) -> int:
             assert all(isinstance(turn, dict) for turn in trajectory), f"{path}: invalid trajectory turn"
             roles = [turn.get("role") for turn in trajectory]
             assert roles[0] == "user" and roles[-1] == "assistant", f"{path}: invalid trajectory boundaries"
-            assert all(a != b for a, b in zip(roles, roles[1:])), f"{path}: roles must alternate"
+            assert all(role in {"user", "assistant"} for role in roles), f"{path}: invalid trajectory role"
+            assert all(str(turn.get("content", "")).strip() for turn in trajectory), f"{path}: empty trajectory content"
             for turn in trajectory:
                 if turn["role"] == "assistant": assert parse_action(str(turn.get("content", ""))) is not None, f"{path}: invalid trajectory action"
         elif {"instruction", "input", "assistant_response"}.issubset(record):
