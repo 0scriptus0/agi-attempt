@@ -18,17 +18,19 @@ jobs:
           python-version: "3.11"
       - name: Materialize generated Lewi v4 datasets
         if: ${{ !startsWith(github.event.head_commit.message, '[bot] Generate Lewi v4') }}
-        run: python scripts/generate_lewi_v4_quality.py
-      - name: Commit generated Lewi v4 dataset
+        run: |
+          python scripts/generate_lewi_v4_quality.py
+          python scripts/generate_lewi_v4_preference.py
+      - name: Commit generated Lewi v4 datasets
         if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, '[bot] Generate Lewi v4') }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add datasets/reasoning/lewi_agentic_state_transition_sft_v4_generated.jsonl
+          git add datasets/reasoning/lewi_agentic_state_transition_sft_v4_generated.jsonl datasets/reasoning/lewi_agentic_state_transition_preference_v4_generated.jsonl
           if git diff --cached --quiet; then
-            echo "Generated dataset is already up to date."
+            echo "Generated datasets are already up to date."
           else
-            git commit -m "[bot] Generate Lewi v4 state-transition SFT dataset"
+            git commit -m "[bot] Generate Lewi v4 state-transition datasets"
             git push
           fi
       - name: Validate JSONL datasets and config
