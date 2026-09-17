@@ -1,0 +1,10 @@
+{
+  "run_id": "sft_1789630472",
+  "stage": "sft",
+  "base_model": "Qwen/Qwen2.5-7B-Instruct",
+  "num_examples": 121,
+  "epochs": 3.0,
+  "final_loss": null,
+  "output_dir": "checkpoints/lewi1-sft",
+  "timestamp": 1789630665.5506494
+}

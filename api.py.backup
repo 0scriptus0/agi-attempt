@@ -9,7 +9,7 @@ import torch
 from fastapi import FastAPI,HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel,Field
-from transformers import AutoModelForCausalLM,AutoTokenizer,BitsAndBytesConfig
+from transformers import AutoModelForCausalLM,AutoTokenizer
 try: from peft import PeftModel
 except ImportError: PeftModel=None
 ROOT=Path(__file__).resolve().parent; WORKSPACE=ROOT/"workspace"; LEARNING=ROOT/"learning_curve"; MEMORY_DIR=LEARNING/"memory"; INTERACTIONS_DIR=LEARNING/"interactions"; MEMORY_FILE=MEMORY_DIR/"memories.jsonl"
@@ -20,268 +20,38 @@ app=FastAPI(title="Lewi 1 Local Agent",version="3.3"); app.add_middleware(CORSMi
 SYSTEM_PROMPT='''You are Lewi 1, an agentic reasoning system. At each turn output EXACTLY one JSON object and no markdown:\n{"action":"reason","content":"..."}\n{"action":"memory_search","query":"..."}\n{"action":"memory_write","content":"...","memory_type":"lesson","applicable_when":"...","not_applicable_when":"...","evidence":"...","confidence":0.9}\n{"action":"code_exec","code":"..."}\n{"action":"file_read","path":"..."}\n{"action":"file_write","path":"...","content":"..."}\n{"action":"final","content":"..."}\nReason updates the plan. Memory is experience, not truth. Search it before relying on prior experience. Store only reusable, evidence-backed lessons with applicability and exclusions. Tools produce observations; inspect them and re-plan when they contradict expectations. Never claim success without evidence. After failure, change strategy instead of blindly repeating it. Finish with action=final.'''
 
 def load_model():
-    global MODEL, TOKENIZER
-
-    path = Path(MODEL_PATH)
-
-    # The tokenizer belongs to the base Qwen model, not the LoRA adapter.
-    TOKENIZER = AutoTokenizer.from_pretrained(
-        BASE_MODEL,
-        use_fast=True,
-    )
-    TOKENIZER.pad_token = TOKENIZER.pad_token or TOKENIZER.eos_token
-
-    if path.exists() and (path / "adapter_config.json").exists():
-        print(f"Loading base model: {BASE_MODEL}")
-        print(f"Loading LoRA adapter: {path}")
-
-        compute_dtype = (
-            torch.bfloat16
-            if DEVICE == "cuda" and torch.cuda.is_bf16_supported()
-            else torch.float16
-        )
-
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=compute_dtype,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-        )
-
-        base = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL,
-            quantization_config=bnb_config,
-            device_map={"": 0} if DEVICE == "cuda" else None,
-        )
-
-        MODEL = PeftModel.from_pretrained(base, str(path))
-        MODEL.eval()
-
-        print("Lewi LoRA adapter loaded successfully.")
-
-    else:
-        print(f"Loading standalone model: {MODEL_PATH}")
-
-        MODEL = AutoModelForCausalLM.from_pretrained(
-            str(path if path.exists() else BASE_MODEL),
-            torch_dtype=DTYPE,
-            device_map="auto" if DEVICE == "cuda" else None,
-        )
-        MODEL.eval()
-
+ global MODEL,TOKENIZER
+ path=Path(MODEL_PATH); tokenizer_path=path if path.exists() else BASE_MODEL; TOKENIZER=AutoTokenizer.from_pretrained(str(tokenizer_path)); TOKENIZER.pad_token=TOKENIZER.pad_token or TOKENIZER.eos_token
+ if path.exists() and (path/"adapter_config.json").exists():
+  if PeftModel is None: raise RuntimeError("PEFT is required to load the trained adapter")
+  MODEL=AutoModelForCausalLM.from_pretrained(BASE_MODEL,torch_dtype=DTYPE,device_map="auto" if DEVICE=="cuda" else None); MODEL=PeftModel.from_pretrained(MODEL,str(path))
+ else: MODEL=AutoModelForCausalLM.from_pretrained(str(path if path.exists() else BASE_MODEL),torch_dtype=DTYPE,device_map="auto" if DEVICE=="cuda" else None)
+ if DEVICE=="cpu": MODEL.to(DEVICE)
+ MODEL.eval()
 
 def safe_path(rel):
  root=WORKSPACE.resolve(); path=(WORKSPACE/rel).resolve()
  if path!=root and root not in path.parents: raise ValueError("path escapes workspace")
  return path
 
-def _normalize_memory_text(value):
-    value = str(value or "").strip().lower()
-    value = re.sub(r"\s+", " ", value)
-    return value
-
-
-def _memory_key(item):
-    """Stable identity for a memory, excluding volatile fields."""
-    fields = (
-        "memory_type",
-        "scope",
-        "content",
-        "applicable_when",
-        "not_applicable_when",
-    )
-    normalized = "||".join(
-        _normalize_memory_text(item.get(field, ""))
-        for field in fields
-    )
-    return normalized
-
-
-def _load_memories():
-    if not MEMORY_FILE.exists():
-        return []
-
-    memories = []
-    for line in MEMORY_FILE.read_text(encoding="utf-8").splitlines():
-        try:
-            item = json.loads(line)
-            if isinstance(item, dict) and item.get("content"):
-                memories.append(item)
-        except json.JSONDecodeError:
-            continue
-    return memories
-
-
-def _save_memories(memories):
-    tmp = MEMORY_FILE.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        for item in memories:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
-    tmp.replace(MEMORY_FILE)
-
-
-def _memory_terms(text):
-    # Ignore very short/generic words. Numeric tokens are deliberately
-    # excluded from retrieval unless they occur as part of a larger
-    # non-numeric phrase; this prevents "37 * 19" from retrieving
-    # unrelated memories such as "37 + 58 = 95".
-    return {
-        token
-        for token in re.findall(r"[a-zA-Z][a-zA-Z0-9_]{2,}", text.lower())
-        if token not in {
-            "the", "and", "for", "when", "with", "this", "that",
-            "from", "into", "then", "only", "not", "use", "using",
-            "need", "should", "can", "will", "are", "was", "has",
-            "have", "about", "after", "before", "same"
-        }
-    }
-
-
-def _memory_relevance(query, item):
-    query_terms = _memory_terms(query)
-    if not query_terms:
-        return 0.0
-
-    content = _memory_terms(item.get("content", ""))
-    applicable = _memory_terms(item.get("applicable_when", ""))
-    excluded = _memory_terms(item.get("not_applicable_when", ""))
-
-    # Content is strongest evidence.
-    content_overlap = len(query_terms & content)
-    applicability_overlap = len(query_terms & applicable)
-    exclusion_overlap = len(query_terms & excluded)
-
-    # A memory must have meaningful lexical relevance.
-    score = (
-        content_overlap * 5.0
-        + applicability_overlap * 2.0
-        - exclusion_overlap * 4.0
-    )
-
-    return score
-
-
-def memory_search(query, limit=5):
-    memories = _load_memories()
-    if not memories or not query.strip():
-        return []
-
-    scored = []
-    for item in memories:
-        score = _memory_relevance(query, item)
-
-        # Don't retrieve weakly related memories merely because one
-        # generic word happens to occur.
-        if score >= 5.0:
-            scored.append((score, item))
-
-    scored.sort(
-        key=lambda pair: (
-            pair[0],
-            float(pair[1].get("confidence", 0.0)),
-            float(pair[1].get("timestamp", 0.0)),
-        ),
-        reverse=True,
-    )
-
-    # Deduplicate at retrieval time too. This protects the runtime even
-    # if an old/polluted memory file exists.
-    results = []
-    seen = set()
-
-    for _, item in scored:
-        key = _memory_key(item)
-        if key in seen:
-            continue
-        seen.add(key)
-        results.append(item)
-
-        if len(results) >= limit:
-            break
-
-    return results
-
+def memory_search(query,limit=8):
+ if not MEMORY_FILE.exists() or not query.strip(): return []
+ terms=set(re.findall(r"[a-zA-Z0-9_]{3,}",query.lower())); hits=[]
+ for line in MEMORY_FILE.read_text(encoding="utf-8").splitlines():
+  try: item=json.loads(line)
+  except json.JSONDecodeError: continue
+  text=" ".join(str(item.get(k,"")) for k in ("content","memory_type","applicable_when","not_applicable_when")).lower(); score=sum(text.count(t) for t in terms)
+  if score: hits.append((score,item))
+ hits.sort(key=lambda x:(x[0],x[1].get("timestamp",0)),reverse=True); return [item for _,item in hits[:limit]]
 
 def memory_write(data):
-    content = str(data.get("content", "")).strip()
-    if not content:
-        return {"ok": False, "error": "empty memory"}
-
-    memory_type = str(data.get("memory_type", "lesson")).strip()
-    scope = str(data.get("scope", "global")).strip()
-    applicable_when = str(data.get("applicable_when", "")).strip()
-    not_applicable_when = str(data.get("not_applicable_when", "")).strip()
-    evidence = str(data.get("evidence", "")).strip()
-
-    if not applicable_when:
-        return {
-            "ok": False,
-            "error": "memory rejected: applicable_when is required",
-        }
-
-    if not evidence:
-        return {
-            "ok": False,
-            "error": "memory rejected: evidence is required",
-        }
-
-    try:
-        confidence = max(
-            0.0,
-            min(float(data.get("confidence", 0.7)), 1.0),
-        )
-    except (TypeError, ValueError):
-        confidence = 0.7
-
-    item = {
-        "id": str(uuid.uuid4()),
-        "timestamp": time.time(),
-        "memory_type": memory_type,
-        "scope": scope,
-        "content": content,
-        "applicable_when": applicable_when,
-        "not_applicable_when": not_applicable_when,
-        "evidence": evidence,
-        "confidence": confidence,
-        "support_count": 1,
-    }
-
-    memories = _load_memories()
-    key = _memory_key(item)
-
-    # GLOBAL DEDUPLICATION:
-    # Identical knowledge is one memory with accumulated evidence,
-    # never N independent memories.
-    for existing in memories:
-        if _memory_key(existing) == key:
-            existing["timestamp"] = time.time()
-            existing["support_count"] = int(existing.get("support_count", 1)) + 1
-            existing["confidence"] = max(
-                float(existing.get("confidence", 0.0)),
-                confidence,
-            )
-
-            # Preserve the newest evidence because it represents the
-            # latest observation supporting the same memory.
-            existing["evidence"] = evidence
-
-            _save_memories(memories)
-
-            return {
-                "ok": True,
-                "deduplicated": True,
-                "memory": existing,
-                "message": "Existing memory reinforced instead of creating a duplicate.",
-            }
-
-    memories.append(item)
-    _save_memories(memories)
-
-    return {
-        "ok": True,
-        "deduplicated": False,
-        "memory": item,
-    }
+ content=str(data.get("content","")).strip()
+ if not content: return {"ok":False,"error":"empty memory"}
+ try: confidence=max(0.0,min(float(data.get("confidence",0.7)),1.0))
+ except (TypeError,ValueError): confidence=0.7
+ item={"id":str(uuid.uuid4()),"timestamp":time.time(),"memory_type":str(data.get("memory_type","lesson")),"scope":str(data.get("scope","global")),"content":content,"applicable_when":str(data.get("applicable_when","")),"not_applicable_when":str(data.get("not_applicable_when","")),"evidence":str(data.get("evidence","agent observation")),"confidence":confidence}
+ with MEMORY_FILE.open("a",encoding="utf-8") as f: f.write(json.dumps(item,ensure_ascii=False)+"\n")
+ return {"ok":True,"memory":item}
 
 def execute(action):
  name=action.get("action")

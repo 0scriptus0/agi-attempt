@@ -1,0 +1,71 @@
+LEWI INTERACTIVE BENCHMARK
+======================================================================
+Run: benchmark-20260917-050138
+API: http://127.0.0.1:8000/chat
+Tasks: 10
+Elapsed: 311.8s
+
+Behavioral benchmark; not an AGI score.
+Overall criterion score: 5.0%
+
+CATEGORY SCORES
+----------------------------------------------------------------------
+adaptive_compute           50.0%
+agent_loop                  0.0%
+memory                      0.0%
+reasoning                   0.0%
+recovery                    0.0%
+replanning                  0.0%
+tool_selection              0.0%
+verification                0.0%
+
+TASK RESULTS
+----------------------------------------------------------------------
+T01 adaptive_compute     50.0% steps=0 actions=-
+  PASS no_tool
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T02 tool_selection        0.0% steps=0 actions=-
+  FAIL code_exec
+  FAIL verify
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T03 tool_selection        0.0% steps=0 actions=-
+  FAIL file_tool
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T04 recovery              0.0% steps=0 actions=-
+  FAIL file_tool
+  FAIL recovery
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T05 memory                0.0% steps=0 actions=-
+  FAIL memory_search
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T06 memory                0.0% steps=0 actions=-
+  FAIL memory_write
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T07 verification          0.0% steps=0 actions=-
+  FAIL file_write
+  FAIL verify
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T08 replanning            0.0% steps=0 actions=-
+  FAIL file_tool
+  FAIL recovery
+  FAIL replan
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T09 reasoning             0.0% steps=0 actions=-
+  FAIL file_tool
+  FAIL evidence
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.
+T10 agent_loop            0.0% steps=0 actions=-
+  FAIL file_tool
+  FAIL memory_write
+  FAIL verify
+  FAIL final
+  output: Agent stopped at the configured step limit without a final action.

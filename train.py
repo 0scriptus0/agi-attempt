@@ -176,7 +176,7 @@ def load_base_model(base_model: str):
         bnb_4bit_quant_type="nf4",
     )
     model = AutoModelForCausalLM.from_pretrained(
-        base_model, quantization_config=bnb_config, device_map="auto"
+        base_model, quantization_config=bnb_config, device_map={"": 0}
     )
     return prepare_model_for_kbit_training(model)
 
@@ -220,7 +220,7 @@ def run_sft(args: argparse.Namespace) -> None:
         bf16=compute_dtype == torch.bfloat16,
         gradient_checkpointing=True,
         report_to=[],
-        warmup_ratio=0.03,
+        warmup_steps=1,
         lr_scheduler_type="cosine",
     )
 
@@ -320,7 +320,7 @@ def run_dpo(args: argparse.Namespace) -> None:
         fp16=compute_dtype == torch.float16,
         bf16=compute_dtype == torch.bfloat16,
         report_to=[],
-        warmup_ratio=0.03,
+        warmup_steps=1,
     )
     trainer = DPOTrainer(model=model, args=dpo_config, train_dataset=dpo_dataset, processing_class=tokenizer)
     trainer.train()
@@ -332,7 +332,7 @@ def run_dpo(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Lewi 1 with QLoRA SFT or DPO")
-    parser.add_argument("--stage", choices=["sft", "dpo"], default="sft")
+    parser.add_argument("--stage", choices=["sft", "dpo", "eval"], default="sft")
     parser.add_argument("--config", default="configs/train.yaml")
     parser.add_argument("--base-model", default=DEFAULT_BASE_MODEL)
     parser.add_argument("--output-dir", default="checkpoints/lewi1-sft")
@@ -355,10 +355,22 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+
+    with open(args.config, "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+
     if args.stage == "sft":
         run_sft(args)
-    else:
+    elif args.stage == "dpo":
         run_dpo(args)
+    else:
+        run_eval(
+            args.base_model,
+            args.sft_adapter,
+            config,
+            args.run_id or f"eval-{int(time.time())}",
+            AutoTokenizer.from_pretrained(args.base_model, use_fast=True),
+        )
 
 
 if __name__ == "__main__":

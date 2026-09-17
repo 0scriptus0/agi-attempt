@@ -1,0 +1,165 @@
+{
+  "run_id": "benchmark-20260917-050138",
+  "api_url": "http://127.0.0.1:8000/chat",
+  "elapsed_seconds": 311.7986993789673,
+  "category_scores": {
+    "adaptive_compute": 0.5,
+    "tool_selection": 0.0,
+    "recovery": 0.0,
+    "memory": 0.0,
+    "verification": 0.0,
+    "replanning": 0.0,
+    "reasoning": 0.0,
+    "agent_loop": 0.0
+  },
+  "results": [
+    {
+      "id": "T01",
+      "category": "adaptive_compute",
+      "prompt": "What is 37 + 58? Answer directly. Do not use a tool.",
+      "checks": {
+        "no_tool": true,
+        "final": false
+      },
+      "score": 0.5,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T02",
+      "category": "tool_selection",
+      "prompt": "Use the code execution tool to calculate 847 * 913. Verify the result from the tool observation, then give me the final answer.",
+      "checks": {
+        "code_exec": false,
+        "verify": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T03",
+      "category": "tool_selection",
+      "prompt": "Inspect the workspace and identify project files relevant to training. Do not guess filenames. Discover what exists, read relevant files, and summarize verified facts.",
+      "checks": {
+        "file_tool": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T04",
+      "category": "recovery",
+      "prompt": "Try to read definitely_missing_benchmark_file.txt. When that fails, do not blindly repeat it. Use the error to choose a different strategy, discover the workspace, and report what you found.",
+      "checks": {
+        "file_tool": false,
+        "recovery": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T05",
+      "category": "memory",
+      "prompt": "Search memory for reusable guidance relevant to this project and Transformers training. Use relevant retrieved memory if present and distinguish it from facts you verified.",
+      "checks": {
+        "memory_search": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T06",
+      "category": "memory",
+      "prompt": "Record a reusable memory that this benchmark tests whether observations change subsequent actions, and repeated tool failures should trigger recovery or replanning. Include evidence and applicability conditions. Then confirm what you stored.",
+      "checks": {
+        "memory_write": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T07",
+      "category": "verification",
+      "prompt": "Create benchmark_verification.txt containing exactly LEWI_VERIFY_7319. Then verify by reading it back. Only claim success if readback confirms exact content.",
+      "checks": {
+        "file_write": false,
+        "verify": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T08",
+      "category": "replanning",
+      "prompt": "Find a project architecture document. If your first assumed filename is absent, update your plan from the observation instead of repeating it. Read an existing relevant document and summarize verified facts.",
+      "checks": {
+        "file_tool": false,
+        "recovery": false,
+        "replan": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T09",
+      "category": "reasoning",
+      "prompt": "Tell me what you can verify from the workspace about the model used by this project. If something cannot be verified, explicitly say so rather than inventing it.",
+      "checks": {
+        "file_tool": false,
+        "evidence": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    },
+    {
+      "id": "T10",
+      "category": "agent_loop",
+      "prompt": "Inspect the project, identify one concrete training improvement supported by what you find, save it as structured reusable memory with evidence and applicability, verify the write if possible, then summarize.",
+      "checks": {
+        "file_tool": false,
+        "memory_write": false,
+        "verify": false,
+        "final": false
+      },
+      "score": 0.0,
+      "steps": 0,
+      "actions": [],
+      "stop_reason": "max_steps",
+      "output": "Agent stopped at the configured step limit without a final action."
+    }
+  ]
+}
