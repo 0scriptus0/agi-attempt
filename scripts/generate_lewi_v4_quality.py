@@ -4,19 +4,14 @@ from pathlib import Path
 OUT = Path("datasets/reasoning/lewi_agentic_state_transition_sft_v4_generated.jsonl")
 rows = []
 
-def j(x):
-    return json.dumps(x, separators=(",", ":"))
+def j(x): return json.dumps(x, separators=(",", ":"))
+def add(category, turns): rows.append({"id": f"v4gen_{len(rows)+1:04d}", "category": category, "trajectory": turns})
 
-def add(category, turns):
-    rows.append({"id": f"v4gen_{len(rows)+1:04d}", "category": category, "trajectory": turns})
-
-# 80 direct-answer cases: teach the model not to reach for tools when computation is local and exact.
 arithmetic = [("19+24","43"),("27*13","351"),("96/12","8"),("74-29","45"),("32*15","480"),("125+75","200"),("88-41","47"),("14*17","238"),("144/16","9"),("53+38","91"),("61+29","90"),("18*16","288"),("144-57","87"),("81/9","9"),("23*14","322"),("37+58","95"),("847*913","773311"),("200/25","8"),("17+18+19","54"),("75-26","49")]
 for n in range(4):
-    for q, a in arithmetic:
+    for q,a in arithmetic:
         add("tool_selection", [{"role":"user","content":f"Compute {q}. No external information is needed."},{"role":"assistant","content":j({"action":"final","content":a})}])
 
-# 30 state-sensitive tool choices, repeated with different wording/state.
 tool_cases = [
 ("current release of a rapidly changing package", {"action":"reason","content":"Use current authoritative release data; local memory may be stale."}),
 ("exact contents of an existing configuration file", {"action":"file_read","path":"workspace/config.yaml"}),
@@ -29,10 +24,9 @@ tool_cases = [
 ("deployment health after rollout", {"action":"code_exec","code":"run the deployment health check"}),
 ("a large report available as monthly files", {"action":"file_read","path":"workspace/reports/month-01.md"})]
 for n in range(3):
-    for subject, action in tool_cases:
+    for subject,action in tool_cases:
         add("tool_selection", [{"role":"user","content":f"Determine {subject}. What should happen next?"},{"role":"assistant","content":j(action)},{"role":"user","content":"OBSERVATION: the evidence requirement is confirmed."},{"role":"assistant","content":j({"action":"reason","content":"Choose from observed evidence, not habit."})}])
 
-# 40 recovery cases: failure observation must alter the next action.
 recovery = [
 ("missing.yaml","deploy/app.yaml exists","The assumed path is invalid; use the discovered path.",{"action":"file_read","path":"workspace/deploy/app.yaml"}),
 ("large retrieval timed out twice","monthly files are available","Repeated failure shows no progress; narrow retrieval.",{"action":"file_read","path":"workspace/reports/month-01.md"}),
@@ -45,10 +39,9 @@ recovery = [
 ("health check fails on 8080","runtime reports 8081","Use the observed runtime endpoint.",{"action":"code_exec","code":"run health check against port 8081"}),
 ("requested file is empty","archive contains populated version","Inspect the populated artifact instead.",{"action":"file_read","path":"workspace/archive/populated.txt"})]
 for n in range(4):
-    for failed, observed, revision, action in recovery:
+    for failed,observed,revision,action in recovery:
         add("recovery", [{"role":"user","content":f"The planned operation failed: {failed}."},{"role":"assistant","content":j({"action":"reason","content":"Record the failure and identify changed state before acting again."})},{"role":"user","content":f"OBSERVATION: {observed}."},{"role":"assistant","content":j({"action":"reason","content":revision})},{"role":"assistant","content":j(action)},{"role":"user","content":"OBSERVATION: the revised action is available."}])
 
-# 40 replanning cases.
 plans = [
 ("config is at root","settings/config.toml exists",{"action":"file_read","path":"workspace/settings/config.toml"}),
 ("A must precede B","A depends on B",{"action":"reason","content":"Plan B first, then satisfy A's dependency."}),
@@ -61,10 +54,9 @@ plans = [
 ("old endpoint is authoritative","current docs specify /v2/status",{"action":"code_exec","code":"query /v2/status"}),
 ("records are unique","two IDs are duplicated",{"action":"code_exec","code":"deduplicate by stable ID and rerun validation"})]
 for n in range(4):
-    for assumption, obs, action in plans:
+    for assumption,obs,action in plans:
         add("replanning", [{"role":"user","content":f"The plan assumes {assumption}."},{"role":"assistant","content":j({"action":"reason","content":"Compare the assumption with observed state before committing."})},{"role":"user","content":f"OBSERVATION: {obs}."},{"role":"assistant","content":j({"action":"reason","content":"Update the plan to match the observed state."})},{"role":"assistant","content":j(action)},{"role":"user","content":"OBSERVATION: the revised action is consistent with the updated plan."}])
 
-# 40 memory-discipline cases.
 memory = [
 ("environment X","current environment Y",{"action":"reason","content":"Do not apply the memory; its scope excludes the current environment."}),
 ("one user","preference is explicitly user-specific",{"action":"memory_write","content":"User prefers concise answers.","memory_type":"preference","scope":"user","applicable_when":"This user","not_applicable_when":"Other users","evidence":"Explicit user statement","confidence":0.99}),
@@ -77,16 +69,14 @@ memory = [
 ("two similar lessons","one is scoped to current version",{"action":"memory_search","query":"current version lesson applicability"}),
 ("proposed global lesson","one weak episode supports it",{"action":"reason","content":"Keep it episodic until repeated evidence supports generalization."})]
 for n in range(4):
-    for scope, evidence, action in memory:
+    for scope,evidence,action in memory:
         add("memory_read_write", [{"role":"user","content":f"A memory is known to apply only to {scope}."},{"role":"assistant","content":j({"action":"memory_search","query":"memory scope applicability exclusions evidence"})},{"role":"user","content":f"OBSERVATION: {evidence}."},{"role":"assistant","content":j(action)},{"role":"user","content":"OBSERVATION: the memory decision is consistent with evidence."},{"role":"assistant","content":j({"action":"reason","content":"Preserve observed scope; do not broaden without support."})}])
 
-# 25 verification cases: write -> readback -> final.
 artifacts = ["note.md","config.json","report.md","result.txt","manifest.json","output.txt","plan.md","summary.md"]
 for n in range(25):
     artifact = artifacts[n % len(artifacts)]
     add("verification", [{"role":"user","content":f"Create {artifact} and verify its contents."},{"role":"assistant","content":j({"action":"file_write","path":artifact,"content":"verified artifact"})},{"role":"user","content":"OBSERVATION: write succeeded."},{"role":"assistant","content":j({"action":"file_read","path":artifact})},{"role":"user","content":"OBSERVATION: readback matches the requested contents."},{"role":"assistant","content":j({"action":"final","content":"The artifact is verified by readback."})}])
 
-# 20 termination cases: incomplete states must continue; complete states may terminate.
 termination = [
 ("create and verify a report","written but not read back",{"action":"file_read","path":"workspace/report.md"}),
 ("build and deploy","build passed, deployment pending",{"action":"code_exec","code":"run deployment"}),
@@ -99,19 +89,17 @@ termination = [
 ("repair service","restarted, health pending",{"action":"code_exec","code":"run service health check"}),
 ("complete migration","recorded, post-check pending",{"action":"code_exec","code":"run post-migration verification"})]
 for n in range(2):
-    for goal, state, action in termination:
+    for goal,state,action in termination:
         add("termination", [{"role":"user","content":f"Goal: {goal}. Current state: {state}."},{"role":"assistant","content":j({"action":"reason","content":"Compare current state with the complete goal before terminating."})},{"role":"assistant","content":j(action)}])
 
-# 20 state propagation cases.
 props = [("token","abc123","step B"),("path","workspace/data/report.csv","read"),("version","7.3","deployment"),("record_id","R-204","update"),("artifact","artifact-42","packaging"),("port","8081","health check"),("branch","release/next","deployment"),("checksum","sha256:abcd","verification"),("job_id","J-91","status query"),("output_dir","workspace/out-v2","packaging")]
-for n in range(2):
-    for key, value, consumer in props:
+for n in range(4):
+    for key,value,consumer in props:
         add("state_propagation", [{"role":"user","content":f"Step A produces {key}={value}; {consumer} still has a placeholder."},{"role":"assistant","content":j({"action":"reason","content":"Use concrete runtime state instead of the stale placeholder."})},{"role":"user","content":f"OBSERVATION: {key}={value}."},{"role":"assistant","content":j({"action":"reason","content":f"Propagate {value} into {consumer}."})},{"role":"assistant","content":j({"action":"code_exec","code":f"run {consumer} using {value}"})}])
 
-# 20 uncertainty cases.
 unc = [("two records share a name","identifier lookup selects record B"),("sources disagree","newer authoritative source documents the value"),("tool omits a field","follow-up query supplies it"),("cache conflicts with source","newer timestamp supports source"),("two formats are possible","task specification selects one"),("memory conflicts with docs","current docs apply"),("two test causes are plausible","focused reproduction isolates the boundary"),("two repositories match","canonical metadata identifies one"),("two endpoints appear active","runtime metadata identifies active endpoint"),("file exists twice","manifest identifies authoritative path")]
-for n in range(2):
-    for ambiguity, resolution in unc:
+for n in range(4):
+    for ambiguity,resolution in unc:
         add("uncertainty", [{"role":"user","content":f"Evidence is ambiguous because {ambiguity}."},{"role":"assistant","content":j({"action":"reason","content":"Gather discriminating evidence instead of inventing a state."})},{"role":"user","content":f"OBSERVATION: {resolution}."},{"role":"assistant","content":j({"action":"reason","content":"Update the working state from the new evidence."})},{"role":"assistant","content":j({"action":"final","content":"The ambiguity is resolved using the new evidence."})}])
 
 assert len(rows) == 315, len(rows)
