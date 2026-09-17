@@ -10,30 +10,30 @@ The goal is not to claim that any single component solves AGI. The goal is to do
 
 The current experiment separates the post-trained model from the runtime cognitive machinery:
 
-`post-trained model -> reasoning/action -> tool execution -> observation -> recovery/reasoning -> verification -> final -> episodic trace/memory`
+`post-trained model -> reasoning/action -> tool execution -> observation -> state update -> recovery/replanning -> verification -> final -> episodic trace/memory`
 
-The model supplies learned behavior. `api.py` supplies the executable environment and feedback loop. `learning_curve/` stores the experiment's memory and interaction traces until a server database is added later.
+The model supplies learned behavior. `api.py` supplies the executable environment and feedback loop. `learning_curve/` stores experiment memory and interaction traces until a server database is added later.
 
 ## Local hypothesis test
 
 No hosted-model API key is required.
 
-1. Train the post-trained model:
+### SFT
 
 ```bash
-python train.py --stage sft --base-model Qwen/Qwen2.5-7B-Instruct --output-dir checkpoints/lewi1-sft
+python train.py --stage sft --base-model Qwen/Qwen2.5-7B-Instruct --output-dir checkpoints/lewi4-sft --run-id lewi4_sft_20260917
 ```
 
-2. Optional preference optimization after SFT:
+### Optional DPO
 
 ```bash
-python train.py --stage dpo --base-model Qwen/Qwen2.5-7B-Instruct --sft-adapter checkpoints/lewi1-sft --output-dir checkpoints/lewi1-dpo
+python train.py --stage dpo --base-model Qwen/Qwen2.5-7B-Instruct --sft-adapter checkpoints/lewi4-sft --output-dir checkpoints/lewi4-dpo --run-id lewi4_dpo_20260917
 ```
 
-3. Run the local model as the agent:
+### Runtime
 
 ```bash
-export LEWI_MODEL=checkpoints/lewi1-sft
+export LEWI_MODEL=checkpoints/lewi4-sft
 export LEWI_BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
 python api.py
 ```
@@ -47,21 +47,26 @@ Every run is written to `learning_curve/interactions/YYYY-MM-DD.jsonl` with:
 - model actions
 - tool inputs and observations
 - step count
-- memory retrieved
+- retrieved memories
+- loop state
 - final result
 - stop reason
 
 Durable memories are written to `learning_curve/memory/memories.jsonl`.
 
-The important hypothesis is not whether the agent can call a tool once. It is whether **observations change subsequent decisions**, whether failures cause strategy changes, and whether verified experience can be retrieved later without retraining the neural weights.
+The important hypothesis is not whether the agent can call a tool once. It is whether **observations change subsequent decisions**, whether failures cause strategy changes, whether the agent verifies completion before terminating, and whether verified experience can be retrieved later without retraining the neural weights.
 
 ## Dataset design
 
-The SFT configuration includes the original reasoning/memory material plus `datasets/reasoning/lewi_cognitive_loop_sft.jsonl`, which explicitly teaches the runtime action protocol: reasoning updates, memory retrieval, memory writes with applicability boundaries, tool execution, recovery, verification, and finalization.
+The SFT configuration now includes `datasets/reasoning/lewi_agentic_state_transition_sft_v4.jsonl`. Unlike single-turn conceptual examples, v4 contains multi-turn trajectories where an observation changes the next action, including tool selection, verification, recovery, replanning, memory read/write, partial results, evidence conflicts, dependency updates, and termination.
 
-The optional DPO configuration also includes `datasets/reasoning/lewi_cognitive_loop_preference.jsonl`, which contrasts correct recovery/memory/verification behavior against plausible but incorrect agent behavior.
+The preference configuration includes `datasets/reasoning/lewi_agentic_state_transition_preference_v4.jsonl`. These pairs explicitly prefer state-changing behavior over repeated failed actions, unnecessary tools, premature finalization, unsupported generalization, and unverified claims.
 
-The held-out evaluation set remains separate from SFT data.
+The held-out evaluation set remains separate from SFT data. Existing lewi3 checkpoints are retained as baselines; v4 is an experiment rather than a replacement claim.
+
+## Memory discipline
+
+Runtime memory is deduplicated by semantic fields, requires applicability and evidence for durable writes, tracks support counts, and ranks retrieval by content/applicability overlap while penalizing explicit exclusions. User-scoped preferences are not treated as global lessons, and one-off episode facts should remain scoped rather than becoming universal rules.
 
 ## Documentation map
 
