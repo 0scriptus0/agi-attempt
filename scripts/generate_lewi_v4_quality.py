@@ -1,14 +1,15 @@
 import json
 from pathlib import Path
+import os
 
-OUT = Path("datasets/reasoning/lewi_agentic_state_transition_sft_v4_generated.jsonl")
+OUT = Path(os.environ.get("LEWI_V4_OUTPUT", "datasets/reasoning/lewi_agentic_state_transition_sft_v4_generated.jsonl"))
 rows = []
 
 def j(x): return json.dumps(x, separators=(",", ":"))
 def add(category, turns): rows.append({"id": f"v4gen_{len(rows)+1:04d}", "category": category, "trajectory": turns})
 
 arithmetic = [("19+24","43"),("27*13","351"),("96/12","8"),("74-29","45"),("32*15","480"),("125+75","200"),("88-41","47"),("14*17","238"),("144/16","9"),("53+38","91"),("61+29","90"),("18*16","288"),("144-57","87"),("81/9","9"),("23*14","322"),("37+58","95"),("847*913","773311"),("200/25","8"),("17+18+19","54"),("75-26","49")]
-for n in range(4):
+for n in range(3):
     for q,a in arithmetic:
         add("tool_selection", [{"role":"user","content":f"Compute {q}. No external information is needed."},{"role":"assistant","content":j({"action":"final","content":a})}])
 
@@ -88,7 +89,7 @@ termination = [
 ("answer current fact","authoritative current source checked",{"action":"final","content":"The answer is supported by current authoritative evidence."}),
 ("repair service","restarted, health pending",{"action":"code_exec","code":"run service health check"}),
 ("complete migration","recorded, post-check pending",{"action":"code_exec","code":"run post-migration verification"})]
-for n in range(2):
+for n in range(1):
     for goal,state,action in termination:
         add("termination", [{"role":"user","content":f"Goal: {goal}. Current state: {state}."},{"role":"assistant","content":j({"action":"reason","content":"Compare current state with the complete goal before terminating."})},{"role":"assistant","content":j(action)}])
 
