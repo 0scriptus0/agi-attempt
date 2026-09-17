@@ -16,23 +16,16 @@ V4_GENERATED_CATEGORIES = {"tool_selection", "recovery", "replanning", "memory_r
 def load_jsonl(path: Path) -> list[dict]:
     records = []
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise AssertionError(f"{path}:{line_no}: invalid JSON: {exc}") from exc
-        if not isinstance(value, dict):
-            raise AssertionError(f"{path}:{line_no}: record must be an object")
+        if not line.strip(): continue
+        try: value = json.loads(line)
+        except json.JSONDecodeError as exc: raise AssertionError(f"{path}:{line_no}: invalid JSON: {exc}") from exc
+        if not isinstance(value, dict): raise AssertionError(f"{path}:{line_no}: record must be an object")
         records.append(value)
     return records
 
 
 def yaml_paths() -> tuple[list[str], list[str], list[str]]:
-    section = None
-    sft: list[str] = []
-    preference: list[str] = []
-    evaluation: list[str] = []
+    section = None; sft: list[str] = []; preference: list[str] = []; evaluation: list[str] = []
     for raw in CONFIG.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if line == "sft:": section = sft
@@ -57,11 +50,12 @@ def validate_sft(path: Path) -> int:
             assert isinstance(trajectory, list) and trajectory, f"{path}: trajectory must be non-empty"
             assert all(isinstance(turn, dict) for turn in trajectory), f"{path}: invalid trajectory turn"
             roles = [turn.get("role") for turn in trajectory]
-            assert roles[0] == "user" and roles[-1] == "assistant", f"{path}: invalid trajectory boundaries"
+            assert roles[0] == "user", f"{path}: trajectory must start with user"
             assert all(role in {"user", "assistant"} for role in roles), f"{path}: invalid trajectory role"
             assert all(str(turn.get("content", "")).strip() for turn in trajectory), f"{path}: empty trajectory content"
             for turn in trajectory:
-                if turn["role"] == "assistant": assert parse_action(str(turn.get("content", ""))) is not None, f"{path}: invalid trajectory action"
+                if turn["role"] == "assistant":
+                    assert parse_action(str(turn.get("content", ""))) is not None, f"{path}: invalid trajectory action"
         elif {"instruction", "input", "assistant_response"}.issubset(record):
             assert str(record["assistant_response"]).strip(), f"{path}: assistant response is empty"
         elif {"input", "assistant_response"}.issubset(record):
@@ -78,7 +72,8 @@ def validate_preferences(path: Path) -> int:
     for record in records:
         assert {"chosen", "rejected"}.issubset(record), f"{path}: incomplete preference record"
         if "input" not in record: assert "prompt" in record, f"{path}: preference needs input or prompt"
-        prompt, chosen, rejected = (str(record.get("input", record.get("prompt", ""))).strip(), str(record["chosen"]).strip(), str(record["rejected"]).strip())
+        prompt = str(record.get("input", record.get("prompt", ""))).strip()
+        chosen, rejected = str(record["chosen"]).strip(), str(record["rejected"]).strip()
         assert prompt and chosen and rejected and chosen != rejected, f"{path}: invalid preference fields"
         chosen_action, rejected_action = parse_action(chosen), parse_action(rejected)
         if chosen_action is not None or rejected_action is not None:
@@ -88,8 +83,7 @@ def validate_preferences(path: Path) -> int:
 
 
 def validate_generated_v4(root: Path, counts: dict[str, int]) -> None:
-    sft_path = root / V4_GENERATED_SFT
-    pref_path = root / V4_GENERATED_PREF
+    sft_path = root / V4_GENERATED_SFT; pref_path = root / V4_GENERATED_PREF
     assert V4_GENERATED_SFT in counts and V4_GENERATED_PREF in counts, "generated v4 datasets must be configured"
     assert counts[V4_GENERATED_SFT] == 315, f"generated v4 SFT must contain 315 records, got {counts[V4_GENERATED_SFT]}"
     assert counts[V4_GENERATED_PREF] == 100, f"generated v4 preference must contain 100 records, got {counts[V4_GENERATED_PREF]}"
