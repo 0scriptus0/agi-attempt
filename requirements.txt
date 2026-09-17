@@ -7,8 +7,7 @@ bitsandbytes
 pyyaml
 trl  # only needed for --stage dpo
 
-# agent API (api.py)
+# local agent API (api.py)
 fastapi
 uvicorn
-anthropic
 pydantic

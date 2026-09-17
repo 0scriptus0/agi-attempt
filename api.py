@@ -1,417 +1,138 @@
 #!/usr/bin/env python3
-"""
-Lewi 1 agent API.
-
-Scope, honestly stated: this is a FastAPI server that runs a tool-using
-agent loop against the Anthropic Messages API, using whichever adapter
-train.py produced (or the bare base model if you haven't trained one
-yet). It is the test harness for the fine-tuned model, not a separate
-intelligence — the "agentic" behavior lives entirely in the tool-use
-loop below, which any base Claude/Qwen/Llama chat model can drive.
-
-Tools are feature-flagged via environment variables so you can turn
-each one on independently while you figure out which are reliable:
-
-    LEWI_TOOL_WEB_SEARCH=1   # Anthropic-hosted web_search tool
-    LEWI_TOOL_CODE_EXEC=1    # sandboxed local python execution
-    LEWI_TOOL_FILE_IO=1      # read/write inside ./workspace only
-    LEWI_TOOL_MEMORY=1       # read/write learning_curve/memory/*.jsonl
-
-All four default to "on" (see FEATURE_FLAGS below) so you can see the
-full agent working end to end, then turn individual tools off if one
-turns out to be unreliable for your use case.
-
-Every turn (request + full tool-call trace + final answer) is appended
-to learning_curve/interactions/<date>.jsonl. That's raw material for a
-future continual-learning / distillation pass, not a database — you
-said you'd swap in a real one later, so this deliberately stays a flat
-append-only file for now.
-
-Run:
-    pip install fastapi uvicorn anthropic python-dotenv
-    export ANTHROPIC_API_KEY=...
-    python api.py
-    # -> http://localhost:8000  (index.html talks to this)
-"""
-
+"""Lewi 1 local agent runtime: post-trained model + executable cognitive loop."""
 from __future__ import annotations
-
-import json
-import os
-import subprocess
-import tempfile
-import time
-import uuid
+import json,os,re,subprocess,tempfile,time,uuid
 from datetime import date
 from pathlib import Path
 from typing import Any
-
-from fastapi import FastAPI, HTTPException
+import torch
+from fastapi import FastAPI,HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel,Field
+from transformers import AutoModelForCausalLM,AutoTokenizer
+try: from peft import PeftModel
+except ImportError: PeftModel=None
+ROOT=Path(__file__).resolve().parent; WORKSPACE=ROOT/"workspace"; LEARNING=ROOT/"learning_curve"; MEMORY_DIR=LEARNING/"memory"; INTERACTIONS_DIR=LEARNING/"interactions"; MEMORY_FILE=MEMORY_DIR/"memories.jsonl"
+for p in (WORKSPACE,MEMORY_DIR,INTERACTIONS_DIR): p.mkdir(parents=True,exist_ok=True)
+MODEL_PATH=os.environ.get("LEWI_MODEL","checkpoints/lewi1-sft"); BASE_MODEL=os.environ.get("LEWI_BASE_MODEL","Qwen/Qwen2.5-7B-Instruct"); MAX_AGENT_STEPS=int(os.environ.get("LEWI_MAX_AGENT_STEPS","10")); MAX_NEW_TOKENS=int(os.environ.get("LEWI_MAX_NEW_TOKENS","700")); DEVICE="cuda" if torch.cuda.is_available() else "cpu"; DTYPE=torch.bfloat16 if DEVICE=="cuda" and torch.cuda.is_bf16_supported() else torch.float16 if DEVICE=="cuda" else torch.float32
+FEATURE_FLAGS={"code_exec":os.environ.get("LEWI_TOOL_CODE_EXEC","1")=="1","file_io":os.environ.get("LEWI_TOOL_FILE_IO","1")=="1","memory":os.environ.get("LEWI_TOOL_MEMORY","1")=="1"}
+app=FastAPI(title="Lewi 1 Local Agent",version="3.3"); app.add_middleware(CORSMiddleware,allow_origins=[os.environ.get("LEWI_ALLOWED_ORIGIN","http://localhost:8000")],allow_methods=["GET","POST"],allow_headers=["Content-Type"]); MODEL=None; TOKENIZER=None
+SYSTEM_PROMPT='''You are Lewi 1, an agentic reasoning system. At each turn output EXACTLY one JSON object and no markdown:\n{"action":"reason","content":"..."}\n{"action":"memory_search","query":"..."}\n{"action":"memory_write","content":"...","memory_type":"lesson","applicable_when":"...","not_applicable_when":"...","evidence":"...","confidence":0.9}\n{"action":"code_exec","code":"..."}\n{"action":"file_read","path":"..."}\n{"action":"file_write","path":"...","content":"..."}\n{"action":"final","content":"..."}\nReason updates the plan. Memory is experience, not truth. Search it before relying on prior experience. Store only reusable, evidence-backed lessons with applicability and exclusions. Tools produce observations; inspect them and re-plan when they contradict expectations. Never claim success without evidence. After failure, change strategy instead of blindly repeating it. Finish with action=final.'''
 
-try:
-    import anthropic
-except ImportError as e:  # pragma: no cover
-    raise SystemExit("pip install anthropic") from e
+def load_model():
+ global MODEL,TOKENIZER
+ path=Path(MODEL_PATH); tokenizer_path=path if path.exists() else BASE_MODEL; TOKENIZER=AutoTokenizer.from_pretrained(str(tokenizer_path)); TOKENIZER.pad_token=TOKENIZER.pad_token or TOKENIZER.eos_token
+ if path.exists() and (path/"adapter_config.json").exists():
+  if PeftModel is None: raise RuntimeError("PEFT is required to load the trained adapter")
+  MODEL=AutoModelForCausalLM.from_pretrained(BASE_MODEL,torch_dtype=DTYPE,device_map="auto" if DEVICE=="cuda" else None); MODEL=PeftModel.from_pretrained(MODEL,str(path))
+ else: MODEL=AutoModelForCausalLM.from_pretrained(str(path if path.exists() else BASE_MODEL),torch_dtype=DTYPE,device_map="auto" if DEVICE=="cuda" else None)
+ if DEVICE=="cpu": MODEL.to(DEVICE)
+ MODEL.eval()
 
-ROOT = Path(__file__).resolve().parent
-WORKSPACE = ROOT / "workspace"
-LEARNING_CURVE = ROOT / "learning_curve"
-INTERACTIONS_DIR = LEARNING_CURVE / "interactions"
-MEMORY_DIR = LEARNING_CURVE / "memory"
-WORKSPACE.mkdir(exist_ok=True)
-INTERACTIONS_DIR.mkdir(parents=True, exist_ok=True)
-MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+def safe_path(rel):
+ root=WORKSPACE.resolve(); path=(WORKSPACE/rel).resolve()
+ if path!=root and root not in path.parents: raise ValueError("path escapes workspace")
+ return path
 
-MEMORY_FILE = MEMORY_DIR / "memories.jsonl"
+def memory_search(query,limit=8):
+ if not MEMORY_FILE.exists() or not query.strip(): return []
+ terms=set(re.findall(r"[a-zA-Z0-9_]{3,}",query.lower())); hits=[]
+ for line in MEMORY_FILE.read_text(encoding="utf-8").splitlines():
+  try: item=json.loads(line)
+  except json.JSONDecodeError: continue
+  text=" ".join(str(item.get(k,"")) for k in ("content","memory_type","applicable_when","not_applicable_when")).lower(); score=sum(text.count(t) for t in terms)
+  if score: hits.append((score,item))
+ hits.sort(key=lambda x:(x[0],x[1].get("timestamp",0)),reverse=True); return [item for _,item in hits[:limit]]
 
-# Which model answers requests. Point this at your local adapter's
-# merged checkpoint if you're serving it yourself (e.g. via vLLM with
-# an OpenAI-compatible endpoint) — this file assumes the Anthropic API
-# for now since that's the fastest path to a working test console.
-MODEL = os.environ.get("LEWI_MODEL", "claude-sonnet-4-6")
-MAX_TOKENS = 2048
-MAX_AGENT_STEPS = 8  # hard cap so a tool-call loop can't run forever
+def memory_write(data):
+ content=str(data.get("content","")).strip()
+ if not content: return {"ok":False,"error":"empty memory"}
+ try: confidence=max(0.0,min(float(data.get("confidence",0.7)),1.0))
+ except (TypeError,ValueError): confidence=0.7
+ item={"id":str(uuid.uuid4()),"timestamp":time.time(),"memory_type":str(data.get("memory_type","lesson")),"scope":str(data.get("scope","global")),"content":content,"applicable_when":str(data.get("applicable_when","")),"not_applicable_when":str(data.get("not_applicable_when","")),"evidence":str(data.get("evidence","agent observation")),"confidence":confidence}
+ with MEMORY_FILE.open("a",encoding="utf-8") as f: f.write(json.dumps(item,ensure_ascii=False)+"\n")
+ return {"ok":True,"memory":item}
 
-FEATURE_FLAGS = {
-    "web_search": os.environ.get("LEWI_TOOL_WEB_SEARCH", "1") == "1",
-    "code_exec": os.environ.get("LEWI_TOOL_CODE_EXEC", "1") == "1",
-    "file_io": os.environ.get("LEWI_TOOL_FILE_IO", "1") == "1",
-    "memory": os.environ.get("LEWI_TOOL_MEMORY", "1") == "1",
-}
+def execute(action):
+ name=action.get("action")
+ if name=="memory_search": return {"ok":True,"results":memory_search(str(action.get("query","")))}
+ if name=="memory_write": return memory_write(action)
+ if name=="file_read" and FEATURE_FLAGS["file_io"]:
+  path=safe_path(str(action.get("path","")))
+  if not path.is_file(): return {"ok":False,"error":"file not found"}
+  return {"ok":True,"path":str(path.relative_to(WORKSPACE)),"content":path.read_text(encoding="utf-8")[:20000]}
+ if name=="file_write" and FEATURE_FLAGS["file_io"]:
+  path=safe_path(str(action.get("path",""))); path.parent.mkdir(parents=True,exist_ok=True); path.write_text(str(action.get("content","")),encoding="utf-8"); return {"ok":True,"path":str(path.relative_to(WORKSPACE))}
+ if name=="code_exec" and FEATURE_FLAGS["code_exec"]:
+  code=str(action.get("code",""))
+  if not code.strip(): return {"ok":False,"error":"empty code"}
+  script=None
+  try:
+   with tempfile.NamedTemporaryFile(mode="w",suffix=".py",dir=WORKSPACE,delete=False,encoding="utf-8") as f: f.write(code); script=Path(f.name)
+   result=subprocess.run(["python3",str(script)],cwd=WORKSPACE,capture_output=True,text=True,timeout=30); return {"ok":result.returncode==0,"stdout":result.stdout[-5000:],"stderr":result.stderr[-5000:],"exit_code":result.returncode}
+  except subprocess.TimeoutExpired: return {"ok":False,"error":"execution timed out after 30 seconds"}
+  finally:
+   if script: script.unlink(missing_ok=True)
+ return {"ok":False,"error":f"unknown or disabled action: {name}"}
 
-client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+def extract_action(text):
+ for candidate in re.findall(r"\{.*?\}",text,flags=re.DOTALL)[::-1]:
+  try:
+   obj=json.loads(candidate)
+   if isinstance(obj,dict) and obj.get("action"): return obj
+  except json.JSONDecodeError: pass
+ return None
 
-app = FastAPI(title="Lewi 1 agent API")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # local test console only — tighten before exposing this anywhere
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def make_chat_messages(transcript,memories):
+ system=SYSTEM_PROMPT
+ if memories: system += "\n\nRETRIEVED MEMORY:\n"+"\n".join(f"- {m.get('content')} | applies: {m.get('applicable_when')} | excludes: {m.get('not_applicable_when')}" for m in memories)
+ return [{"role":"system","content":system}]+transcript
 
+def generate(transcript,memories):
+ encoded=TOKENIZER.apply_chat_template(make_chat_messages(transcript,memories),tokenize=True,add_generation_prompt=True,return_tensors="pt"); input_ids=encoded["input_ids"] if hasattr(encoded,"keys") else encoded; attention=encoded.get("attention_mask") if hasattr(encoded,"get") else None; input_ids=input_ids.to(DEVICE)
+ if attention is not None: attention=attention.to(DEVICE)
+ with torch.no_grad(): output=MODEL.generate(input_ids=input_ids,attention_mask=attention,max_new_tokens=MAX_NEW_TOKENS,do_sample=False,pad_token_id=TOKENIZER.pad_token_id)
+ return TOKENIZER.decode(output[0][input_ids.shape[1]:],skip_special_tokens=True).strip()
 
-# ---------------------------------------------------------------------------
-# Tool definitions
-# ---------------------------------------------------------------------------
-# Each entry in TOOL_SPECS is what gets sent to the API. Each entry in
-# TOOL_IMPLS is the local Python function that actually runs when the
-# model asks to use that tool. Keeping specs and impls in lockstep
-# (same key) is what "feature-flagged" means here — flip a flag off and
-# both the spec and the impl vanish from that request.
+def run_agent(user_messages):
+ trace=[]; transcript=list(user_messages); memories=memory_search(" ".join(m["content"] for m in user_messages if m["role"]=="user")) if FEATURE_FLAGS["memory"] else []
+ allowed={"reason","memory_search","memory_write","code_exec","file_read","file_write","final"}
+ for step in range(1,MAX_AGENT_STEPS+1):
+  started=time.time(); raw=generate(transcript,memories); action=extract_action(raw); malformed=action is None
+  if malformed: action={"action":"__invalid__","raw":raw}
+  name=action.get("action"); event={"step":step,"action":action,"raw_model_output":raw}
+  if name=="final": event["duration_ms"]=round((time.time()-started)*1000,2); trace.append(event); return {"reply":str(action.get("content","")),"trace":trace,"steps":step,"memories_used":memories,"stop_reason":"final"}
+  if malformed: observation={"ok":False,"error":"model output was not valid JSON with an action field; output one exact JSON action and no markdown"}
+  elif name not in allowed: observation={"ok":False,"error":f"unsupported action {name}; choose one of {sorted(allowed)}"}
+  else:
+   try: observation={"ok":True,"reasoning_update":str(action.get("content",""))} if name=="reason" else execute(action)
+   except Exception as exc: observation={"ok":False,"error":str(exc)}
+  event["observation"]=observation; event["duration_ms"]=round((time.time()-started)*1000,2); trace.append(event); transcript.append({"role":"assistant","content":raw}); transcript.append({"role":"user","content":"OBSERVATION: "+json.dumps(observation,ensure_ascii=False)})
+  if name=="memory_search" and observation.get("ok"): memories=observation.get("results",[])
+ return {"reply":"Agent stopped at the configured step limit without a final action.","trace":trace,"steps":MAX_AGENT_STEPS,"memories_used":memories,"stop_reason":"max_steps"}
 
-def _safe_workspace_path(rel_path: str) -> Path:
-    """Resolve rel_path inside WORKSPACE, refusing any escape attempt."""
-    candidate = (WORKSPACE / rel_path).resolve()
-    if WORKSPACE.resolve() not in candidate.parents and candidate != WORKSPACE.resolve():
-        raise ValueError(f"path escapes workspace: {rel_path}")
-    return candidate
-
-
-def tool_code_exec(input: dict[str, Any]) -> str:
-    code = input.get("code", "")
-    timeout = min(int(input.get("timeout_seconds", 10)), 30)
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", dir=WORKSPACE, delete=False
-    ) as f:
-        f.write(code)
-        script_path = f.name
-    try:
-        result = subprocess.run(
-            ["python3", script_path],
-            cwd=WORKSPACE,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        out = result.stdout[-4000:]
-        err = result.stderr[-2000:]
-        return json.dumps({"stdout": out, "stderr": err, "exit_code": result.returncode})
-    except subprocess.TimeoutExpired:
-        return json.dumps({"error": f"execution exceeded {timeout}s timeout"})
-    finally:
-        Path(script_path).unlink(missing_ok=True)
-
-
-def tool_file_read(input: dict[str, Any]) -> str:
-    try:
-        path = _safe_workspace_path(input["path"])
-        if not path.exists():
-            return json.dumps({"error": "file not found"})
-        return json.dumps({"content": path.read_text(encoding="utf-8")[:20000]})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
-
-def tool_file_write(input: dict[str, Any]) -> str:
-    try:
-        path = _safe_workspace_path(input["path"])
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(input.get("content", ""), encoding="utf-8")
-        return json.dumps({"ok": True, "path": str(path.relative_to(WORKSPACE))})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
-
-def tool_memory_write(input: dict[str, Any]) -> str:
-    entry = {
-        "id": str(uuid.uuid4()),
-        "timestamp": time.time(),
-        "content": input.get("content", ""),
-        "memory_type": input.get("memory_type", "lesson"),
-        "applicable_when": input.get("applicable_when", ""),
-        "not_applicable_when": input.get("not_applicable_when", ""),
-    }
-    with MEMORY_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
-    return json.dumps({"ok": True, "stored_id": entry["id"]})
-
-
-def tool_memory_search(input: dict[str, Any]) -> str:
-    query = input.get("query", "").lower()
-    if not MEMORY_FILE.exists():
-        return json.dumps({"results": []})
-    hits = []
-    with MEMORY_FILE.open("r", encoding="utf-8") as f:
-        for line in f:
-            entry = json.loads(line)
-            if query in entry["content"].lower():
-                hits.append(entry)
-    return json.dumps({"results": hits[:10]})
-
-
-TOOL_SPECS: dict[str, dict] = {
-    "web_search": {"type": "web_search_20250305", "name": "web_search"},
-    "code_exec": {
-        "name": "code_exec",
-        "description": (
-            "Run a short Python snippet in a sandboxed subprocess (cwd=./workspace, "
-            "no network, hard timeout). Use for calculation, data wrangling, or "
-            "verifying logic — not for anything long-running."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "code": {"type": "string", "description": "Python source to execute"},
-                "timeout_seconds": {"type": "integer", "description": "max 30"},
-            },
-            "required": ["code"],
-        },
-    },
-    "file_io": [
-        {
-            "name": "file_read",
-            "description": "Read a text file from the workspace directory.",
-            "input_schema": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}},
-                "required": ["path"],
-            },
-        },
-        {
-            "name": "file_write",
-            "description": "Write a text file into the workspace directory (creates dirs as needed).",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["path", "content"],
-            },
-        },
-    ],
-    "memory": [
-        {
-            "name": "memory_write",
-            "description": (
-                "Store a durable lesson learned in this conversation, for recall in "
-                "future sessions. Only store things worth remembering across sessions "
-                "— not routine task details."
-            ),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string"},
-                    "memory_type": {"type": "string"},
-                    "applicable_when": {"type": "string"},
-                    "not_applicable_when": {"type": "string"},
-                },
-                "required": ["content"],
-            },
-        },
-        {
-            "name": "memory_search",
-            "description": "Search previously stored memories by keyword.",
-            "input_schema": {
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
-            },
-        },
-    ],
-}
-
-TOOL_IMPLS = {
-    "code_exec": tool_code_exec,
-    "file_read": tool_file_read,
-    "file_write": tool_file_write,
-    "memory_write": tool_memory_write,
-    "memory_search": tool_memory_search,
-}
-
-
-def active_tools() -> list[dict]:
-    tools: list[dict] = []
-    if FEATURE_FLAGS["web_search"]:
-        tools.append(TOOL_SPECS["web_search"])
-    if FEATURE_FLAGS["code_exec"]:
-        tools.append(TOOL_SPECS["code_exec"])
-    if FEATURE_FLAGS["file_io"]:
-        tools.extend(TOOL_SPECS["file_io"])
-    if FEATURE_FLAGS["memory"]:
-        tools.extend(TOOL_SPECS["memory"])
-    return tools
-
-
-SYSTEM_PROMPT = (
-    "You are Lewi 1, a general engineer, researcher, and agentic problem "
-    "solver. You have tools for web search, sandboxed code execution, "
-    "workspace file I/O, and cross-session memory — use them when they "
-    "would materially improve your answer, and say plainly when a tool "
-    "isn't available rather than guessing. Be direct about uncertainty; "
-    "don't claim capabilities you don't have."
-)
-
-
-# ---------------------------------------------------------------------------
-# Agent loop
-# ---------------------------------------------------------------------------
-
-def run_agent_loop(messages: list[dict]) -> dict:
-    """
-    Runs the tool-use loop to completion (or MAX_AGENT_STEPS), returning
-    the final assistant text plus a full trace of every tool call made,
-    so the caller (and the interaction log) can see exactly what happened
-    — not just the final answer.
-    """
-    trace: list[dict] = []
-    tools = active_tools()
-    working_messages = list(messages)
-
-    for step in range(MAX_AGENT_STEPS):
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
-            messages=working_messages,
-            tools=tools if tools else anthropic.NOT_GIVEN,
-        )
-
-        tool_uses = [b for b in response.content if b.type == "tool_use"]
-        text_blocks = [b.text for b in response.content if b.type == "text"]
-
-        if not tool_uses:
-            return {
-                "final_text": "\n".join(text_blocks),
-                "trace": trace,
-                "steps": step + 1,
-                "stop_reason": response.stop_reason,
-            }
-
-        working_messages.append({"role": "assistant", "content": response.content})
-        tool_results = []
-        for tu in tool_uses:
-            impl = TOOL_IMPLS.get(tu.name)
-            if impl is None:
-                # web_search is handled server-side by Anthropic and never
-                # reaches TOOL_IMPLS; anything else unknown is a real bug.
-                continue
-            result_str = impl(tu.input)
-            trace.append({"tool": tu.name, "input": tu.input, "result": result_str})
-            tool_results.append(
-                {"type": "tool_result", "tool_use_id": tu.id, "content": result_str}
-            )
-
-        if tool_results:
-            working_messages.append({"role": "user", "content": tool_results})
-        else:
-            # only server-side tools (web_search) fired this step; nothing
-            # to feed back manually, loop again so the model can continue
-            continue
-
-    return {
-        "final_text": "(stopped after max agent steps without a final answer)",
-        "trace": trace,
-        "steps": MAX_AGENT_STEPS,
-        "stop_reason": "max_steps",
-    }
-
-
-def log_interaction(request_messages: list[dict], result: dict) -> None:
-    log_path = INTERACTIONS_DIR / f"{date.today().isoformat()}.jsonl"
-    entry = {
-        "id": str(uuid.uuid4()),
-        "timestamp": time.time(),
-        "model": MODEL,
-        "feature_flags": FEATURE_FLAGS,
-        "messages_in": request_messages,
-        "trace": result["trace"],
-        "final_text": result["final_text"],
-        "steps": result["steps"],
-        "stop_reason": result["stop_reason"],
-    }
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
-
-
-# ---------------------------------------------------------------------------
-# HTTP surface
-# ---------------------------------------------------------------------------
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
-
-
+def log_run(request,result):
+ path=INTERACTIONS_DIR/f"{date.today().isoformat()}.jsonl"; record={"id":str(uuid.uuid4()),"timestamp":time.time(),"model":MODEL_PATH,"request":request,**result}
+ with path.open("a",encoding="utf-8") as f: f.write(json.dumps(record,ensure_ascii=False)+"\n")
+class ChatMessage(BaseModel): role:str=Field(pattern="^(user|assistant)$"); content:str
+class ChatRequest(BaseModel): messages:list[ChatMessage]
+@app.on_event("startup")
+def startup():
+ if os.environ.get("LEWI_SKIP_MODEL_LOAD")!="1": load_model()
 @app.get("/config")
-def get_config():
-    return {"model": MODEL, "feature_flags": FEATURE_FLAGS, "max_agent_steps": MAX_AGENT_STEPS}
-
-
+def config(): return {"model":MODEL_PATH,"base_model":BASE_MODEL,"device":DEVICE,"max_agent_steps":MAX_AGENT_STEPS,"features":FEATURE_FLAGS}
 @app.post("/chat")
-def chat(req: ChatRequest):
-    if not req.messages:
-        raise HTTPException(400, "messages must be non-empty")
-    request_messages = [{"role": m.role, "content": m.content} for m in req.messages]
-    try:
-        result = run_agent_loop(request_messages)
-    except anthropic.APIError as e:
-        raise HTTPException(502, f"Anthropic API error: {e}")
-    log_interaction(request_messages, result)
-    return {
-        "reply": result["final_text"],
-        "trace": result["trace"],
-        "steps": result["steps"],
-        "stop_reason": result["stop_reason"],
-    }
-
-
+def chat(req:ChatRequest):
+ if not req.messages: raise HTTPException(400,"messages must be non-empty")
+ if MODEL is None: raise HTTPException(503,"model is not loaded")
+ messages=[m.model_dump() for m in req.messages]; result=run_agent(messages); log_run(messages,result); return result
 @app.get("/memory")
 def list_memory():
-    if not MEMORY_FILE.exists():
-        return {"memories": []}
-    with MEMORY_FILE.open("r", encoding="utf-8") as f:
-        return {"memories": [json.loads(line) for line in f if line.strip()]}
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    print(f"Lewi 1 agent API — model={MODEL} flags={FEATURE_FLAGS}")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+ if not MEMORY_FILE.exists(): return {"memories":[]}
+ rows=[]
+ for line in MEMORY_FILE.read_text(encoding="utf-8").splitlines():
+  try: rows.append(json.loads(line))
+  except json.JSONDecodeError: pass
+ return {"memories":rows}
+if __name__=="__main__":
+ import uvicorn; uvicorn.run(app,host="0.0.0.0",port=8000)
