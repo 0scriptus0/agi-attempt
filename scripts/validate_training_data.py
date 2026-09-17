@@ -70,6 +70,10 @@ def validate_sft(path: Path) -> int:
                     parse_action(str(turn.get("content", "")))
         elif {"instruction", "input", "assistant_response"}.issubset(record):
             assert str(record["assistant_response"]).strip(), f"{path}: assistant response is empty"
+        elif {"input", "assistant_response"}.issubset(record):
+            # v3 trajectory records use a compact input/response schema; the response may be free-form.
+            assert str(record["input"]).strip(), f"{path}: input is empty"
+            assert str(record["assistant_response"]).strip(), f"{path}: assistant response is empty"
         elif {"memory_type", "content"}.issubset(record):
             assert str(record.get("content", "")).strip(), f"{path}: memory content is empty"
         else:
