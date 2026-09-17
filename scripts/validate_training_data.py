@@ -44,13 +44,13 @@ def yaml_paths() -> tuple[list[str], list[str], list[str]]:
     return sft, preference, evaluation
 
 
-def parse_action(text: str) -> dict:
+def parse_action(text: str) -> dict | None:
     try:
         action = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise AssertionError(f"agent action is not JSON: {text!r}") from exc
+    except json.JSONDecodeError:
+        return None
     if not isinstance(action, dict) or action.get("action") not in ALLOWED_ACTIONS:
-        raise AssertionError(f"invalid agent action: {action!r}")
+        return None
     return action
 
 
@@ -67,7 +67,7 @@ def validate_sft(path: Path) -> int:
             assert all(a != b for a, b in zip(roles, roles[1:])), f"{path}: roles must alternate"
             for turn in trajectory:
                 if turn["role"] == "assistant":
-                    parse_action(str(turn.get("content", "")))
+                    assert parse_action(str(turn.get("content", ""))) is not None, f"{path}: invalid trajectory action"
         elif {"instruction", "input", "assistant_response"}.issubset(record):
             assert str(record["assistant_response"]).strip(), f"{path}: assistant response is empty"
         elif {"input", "assistant_response"}.issubset(record):
@@ -85,10 +85,16 @@ def validate_preferences(path: Path) -> int:
     records = load_jsonl(path)
     for record in records:
         assert {"input", "chosen", "rejected"}.issubset(record), f"{path}: incomplete preference record"
-        chosen = parse_action(str(record["chosen"]))
-        rejected = parse_action(str(record["rejected"]))
-        assert str(record["chosen"]).strip() != str(record["rejected"]).strip(), f"{path}: identical preference pair"
-        assert chosen["action"] != rejected["action"] or str(record["chosen"]) != str(record["rejected"]), f"{path}: non-distinct pair"
+        chosen = str(record["chosen"]).strip()
+        rejected = str(record["rejected"]).strip()
+        assert chosen and rejected, f"{path}: empty preference response"
+        assert chosen != rejected, f"{path}: identical preference pair"
+        # Legacy preference datasets are free-form text; v4 state-transition pairs are JSON actions.
+        chosen_action = parse_action(chosen)
+        rejected_action = parse_action(rejected)
+        if chosen_action is not None or rejected_action is not None:
+            assert chosen_action is not None and rejected_action is not None, f"{path}: mixed action/free-form pair"
+            assert chosen_action != rejected_action, f"{path}: equivalent JSON preference pair"
     return len(records)
 
 
