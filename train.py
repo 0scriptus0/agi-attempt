@@ -54,6 +54,16 @@ def record_to_messages(record: dict[str, Any]) -> list[dict[str, str]] | None:
             return None
         return messages
 
+    # v3 single-turn trajectory examples use the same SFT shape as the
+    # foundational datasets but are stored under input/assistant_response.
+    if {"input", "assistant_response"}.issubset(record):
+        system = str(record.get("instruction", DEFAULT_AGENT_SYSTEM))
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": str(record["input"])},
+            {"role": "assistant", "content": str(record["assistant_response"])},
+        ]
+
     if SFT_KEYS.issubset(record):
         system = str(record["instruction"])
         user = str(record["input"])
@@ -187,7 +197,7 @@ def run_eval(base_model: str, adapter_dir: str, config: dict, run_id: str, token
     if not torch.cuda.is_available(): raise RuntimeError("Evaluation requires CUDA")
     compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=compute_dtype, bnb_4bit_use_double_quant=True, bnb_4bit_quant_type="nf4")
-    base = AutoModelForCausalLM.from_pretrained(base_model, quantization_config=bnb_config, device_map={"": 0})
+    base = AutoModelForCausalLM.from_pretrained(base_model, quantization_config=bnb_config, device_map="auto", max_memory={0: "8GiB", "cpu": "32GiB"})
     model = PeftModel.from_pretrained(base, adapter_dir); model.eval()
     outputs = []
     try:

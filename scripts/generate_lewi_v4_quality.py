@@ -6,7 +6,26 @@ OUT = Path(os.environ.get("LEWI_V4_OUTPUT", "datasets/reasoning/lewi_agentic_sta
 rows = []
 
 def j(x): return json.dumps(x, separators=(",", ":"))
-def add(category, turns): rows.append({"id": f"v4gen_{len(rows)+1:04d}", "category": category, "trajectory": turns})
+def add(category, turns):
+    # Training trajectories must alternate user observations and assistant actions
+    # and must terminate with an assistant action. Keep generation deterministic.
+    normalized = []
+    for turn in turns:
+        if not isinstance(turn, dict):
+            raise ValueError(f"invalid trajectory turn: {turn!r}")
+        role = turn.get("role")
+        content = str(turn.get("content", "")).strip()
+        if role not in {"user", "assistant"} or not content:
+            raise ValueError(f"invalid trajectory turn: {turn!r}")
+        if normalized and normalized[-1]["role"] == role:
+            if role == "assistant":
+                normalized.append({"role": "user", "content": "OBSERVATION: the previous action was recorded; continue from the updated state."})
+            else:
+                normalized.append({"role": "assistant", "content": "{\"action\":\"reason\",\"content\":\"Process the latest observation before acting again.\"}"})
+        normalized.append({"role": role, "content": content})
+    if normalized and normalized[-1]["role"] != "assistant":
+        normalized.append({"role": "assistant", "content": "{\"action\":\"reason\",\"content\":\"Process the latest observation and update the plan before continuing.\"}"})
+    rows.append({"id": f"v4gen_{len(rows)+1:04d}", "category": category, "trajectory": normalized})
 
 arithmetic = [("19+24","43"),("27*13","351"),("96/12","8"),("74-29","45"),("32*15","480"),("125+75","200"),("88-41","47"),("14*17","238"),("144/16","9"),("53+38","91"),("61+29","90"),("18*16","288"),("144-57","87"),("81/9","9"),("23*14","322"),("37+58","95"),("847*913","773311"),("200/25","8"),("17+18+19","54"),("75-26","49")]
 for n in range(3):
