@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Lewi 1 documentation — reasoning, agentic execution, memory, retrieval, verification, and continual learning research.">
+  <title>Lewi 1 — Documentation</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="topbar-left">
+        <a class="brand-wrap" href="../" aria-label="LewiAI home">
+          <span class="brand-name">LewiAI</span>
+        </a>
+        <nav class="topbar-nav" aria-label="Main navigation">
+          <a href="../">Home</a>
+          <a href="#overview">Docs</a>
+          <a href="#architecture">Architecture</a>
+          <a href="#research">Research</a>
+          <a href="https://github.com/0scriptus0/agi-attempt" target="_blank" rel="noopener">GitHub ↗</a>
+        </nav>
+      </div>
+      <div class="topbar-actions">
+        <a class="secondary-btn compact" href="#quick-start">Quick start</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="hero" id="overview">
+      <div class="hero-content">
+        <p class="section-kicker">Lewi 1 / Documentation</p>
+        <h1>Reasoning. Memory. Verification. Growth.</h1>
+        <p class="dashboard-text">A living research architecture for a continually improving agent.</p>
+        <p class="hero-description">
+          Lewi 1 separates general cognitive capability from experience accumulated at runtime.
+          The current implementation combines a post-trained model with an executable agent loop,
+          external memory, tool execution, verification-oriented control rules, and persistent interaction traces.
+        </p>
+        <div class="hero-actions">
+          <a class="primary-btn" href="#architecture">Explore the architecture</a>
+          <a class="secondary-btn" href="#research">Read the research</a>
+        </div>
+      </div>
+    </section>
+
+    <div class="docs-layout">
+      <aside class="docs-sidebar" aria-label="Documentation navigation">
+        <div class="sidebar-title">On this page</div>
+        <a href="#overview">Overview</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#reasoning">Reasoning controller</a>
+        <a href="#agent-loop">Agent loop</a>
+        <a href="#memory">Memory system</a>
+        <a href="#retrieval">Retrieval</a>
+        <a href="#learning">Learning</a>
+        <a href="#evidence">Current evidence</a>
+        <a href="#research">Research basis</a>
+        <a href="#implementation">Implementation</a>
+        <a href="#boundaries">Boundaries</a>
+        <a href="#quick-start">Quick start</a>
+      </aside>
+
+      <div class="docs-content">
+        <section class="content-block">
+          <div class="section-header">
+            <p class="section-kicker">01 / Overview</p>
+            <h2>From a model to a system that can learn from experience</h2>
+          </div>
+          <div class="info-grid">
+            <article class="info-card">
+              <span class="card-number">MODEL</span>
+              <h3>General cognition</h3>
+              <p>The base model supplies language understanding, abstraction, coding, and general reasoning capability. We do not require every experience to be baked back into its parameters.</p>
+            </article>
+            <article class="info-card">
+              <span class="card-number">RUNTIME</span>
+              <h3>Agentic execution</h3>
+              <p>The runtime turns the model into an executable loop: reason, act, observe, update state, verify, recover, and continue until the goal is met or the step budget is reached.</p>
+            </article>
+            <article class="info-card">
+              <span class="card-number">EXPERIENCE</span>
+              <h3>External memory</h3>
+              <p>Experience is stored outside the weights as structured memory and interaction traces, keeping long-term state distinct from the active neural model.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="content-block" id="architecture">
+          <div class="section-header">
+            <p class="section-kicker">02 / Architecture</p>
+            <h2>The current cognitive stack</h2>
+          </div>
+          <div class="architecture-flow" aria-label="Lewi architecture flow">
+            <div class="flow-node"><strong>01</strong><span>Task</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><strong>02</strong><span>Situation state</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><strong>03</strong><span>Strategy / compute</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><strong>04</strong><span>Memory / evidence</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><strong>05</strong><span>Action</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><strong>06</strong><span>Observation</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><strong>07</strong><span>Verification</span></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-node"><strong>08</strong><span>Learn / store</span></div>
+          </div>
+
+          <div class="split-layout architecture-detail">
+            <div class="section-copy">
+              <h3>One controller, multiple control points</h3>
+              <p>
+                The research architecture treats planning, retrieval, verification, and memory decisions as
+                structured control points around the same reasoning policy rather than as disconnected “brains”.
+              </p>
+              <ul class="feature-list">
+                <li>Difficulty and uncertainty estimate before expensive reasoning.</li>
+                <li>Small hypothesis sets when ambiguity or failure cost justifies branching.</li>
+                <li>Hard verification when a deterministic checker, compiler, test, schema, or evidence check exists.</li>
+                <li>Re-planning when observations invalidate earlier assumptions.</li>
+                <li>Explicit stopping when the success criterion is satisfied or further information has low value.</li>
+              </ul>
+            </div>
+
+            <div class="visual-panel">
+              <div class="panel-label">STATE MODEL</div>
+              <div class="state-grid">
+                <div><strong>Goal</strong><span>What must be achieved</span></div>
+                <div><strong>Known</strong><span>Observed facts</span></div>
+                <div><strong>Unknown</strong><span>Open uncertainty</span></div>
+                <div><strong>Constraints</strong><span>Limits and requirements</span></div>
+                <div><strong>Evidence</strong><span>Sources and checks</span></div>
+                <div><strong>Risks</strong><span>Failure / side effects</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-block" id="reasoning">
+          <div class="section-header">
+            <p class="section-kicker">03 / Reasoning</p>
+            <h2>Reasoning should be adaptive, not ceremonial</h2>
+          </div>
+          <div class="bench-grid">
+            <article class="bench-card">
+              <div class="bench-label">Adaptive compute</div>
+              <h3>Use the smallest sufficient strategy</h3>
+              <p>Trivial deterministic questions should not pay for a deep agent loop. Hard or uncertain tasks can escalate compute, branching, and verification as warranted.</p>
+            </article>
+            <article class="bench-card">
+              <div class="bench-label">Hypothesis management</div>
+              <h3>Keep alternatives alive when evidence is weak</h3>
+              <p>When several causes remain plausible, preserve a small ranked hypothesis set and seek discriminating evidence instead of committing to the first plausible story.</p>
+            </article>
+            <article class="bench-card">
+              <div class="bench-label">Verification</div>
+              <h3>Falsify before declaring success</h3>
+              <p>Model confidence is not a hard verifier. Where possible, use tests, compilers, exact checks, schemas, source evidence, or environment state to validate the result.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="content-block" id="agent-loop">
+          <div class="section-header">
+            <p class="section-kicker">04 / Agent loop</p>
+            <h2>Reason → act → observe → update</h2>
+          </div>
+          <div class="discovery-list">
+            <div class="discovery-item"><span>01 / PLAN</span><p>Parse the user goal, constraints, dependencies, risk, and success criterion.</p></div>
+            <div class="discovery-item"><span>02 / SEARCH</span><p>Use memory as experience and retrieve only when it can inform the current decision.</p></div>
+            <div class="discovery-item"><span>03 / ACT</span><p>Choose the smallest useful tool action: code execution, file I/O, memory search, or memory write.</p></div>
+            <div class="discovery-item"><span>04 / OBSERVE</span><p>Read the actual result. A successful tool call with empty or partial payload is still incomplete state.</p></div>
+            <div class="discovery-item"><span>05 / RECOVER</span><p>When the action fails, change the strategy, scope, source, or assumptions instead of blindly repeating it.</p></div>
+            <div class="discovery-item"><span>06 / VERIFY</span><p>Require evidence that matches the success criterion before the system claims completion.</p></div>
+            <div class="discovery-item"><span>07 / LEARN</span><p>Store only durable, reusable, evidence-backed experience with explicit applicability boundaries.</p></div>
+          </div>
+        </section>
+
+        <section class="content-block" id="memory">
+          <div class="section-header">
+            <p class="section-kicker">05 / Memory</p>
+            <h2>Memory is experience, not truth</h2>
+          </div>
+          <div class="info-grid memory-grid">
+            <article class="info-card">
+              <span class="card-number">EPISODIC</span>
+              <h3>What happened</h3>
+              <p>Interaction traces capture concrete episodes, observations, failures, and outcomes without turning every incident into a general rule.</p>
+            </article>
+            <article class="info-card">
+              <span class="card-number">PROCEDURAL</span>
+              <h3>What tends to work</h3>
+              <p>Repeated, verified episodes can become scoped procedures or lessons with conditions, exclusions, and evidence.</p>
+            </article>
+            <article class="info-card">
+              <span class="card-number">FACT / HYPOTHESIS</span>
+              <h3>What we currently believe</h3>
+              <p>Stable facts and unresolved hypotheses remain distinct. Version and time context matter, so updates should preserve historical state rather than erase it.</p>
+            </article>
+          </div>
+
+          <div class="split-layout memory-lifecycle">
+            <div class="section-copy">
+              <h3>Write gates prevent memory poisoning</h3>
+              <ul class="feature-list">
+                <li>Do not convert a single incident into a global rule without supporting evidence.</li>
+                <li>Store applicability and exclusions, not just a semantic summary.</li>
+                <li>Keep user preferences scoped to the user; do not leak them into global knowledge.</li>
+                <li>When evidence changes, prefer version-aware update or supersession over silent overwrite.</li>
+              </ul>
+            </div>
+            <div class="visual-panel">
+              <div class="panel-label">MEMORY RECORD</div>
+              <pre class="code-block">memory_type
+scope
+content
+applicable_when
+not_applicable_when
+outcome
+evidence
+confidence
+supersedes</pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-block" id="retrieval">
+          <div class="section-header">
+            <p class="section-kicker">06 / Retrieval</p>
+            <h2>Similarity is a starting point, not the decision rule</h2>
+          </div>
+          <div class="split-layout">
+            <div class="section-copy">
+              <p>
+                Retrieval should be context-sensitive. A memory can be semantically close and still be wrong for the
+                current version, environment, user, or failure signature.
+              </p>
+              <ul class="feature-list">
+                <li>Re-rank by task context, scope, recency, evidence quality, and environment match.</li>
+                <li>Demote superseded memories unless they are needed as historical context.</li>
+                <li>Group duplicates and shared-source repetitions so repetition does not masquerade as corroboration.</li>
+                <li>Use memory to seed hypotheses, then verify against fresh external or deterministic evidence when needed.</li>
+              </ul>
+            </div>
+            <div class="visual-panel">
+              <div class="radial-stack">
+                <div class="ring ring-a"><span>Context</span></div>
+                <div class="ring ring-b"><span>Evidence</span></div>
+                <div class="ring ring-c"><span>Time</span></div>
+                <div class="ring ring-d"><span>Scope</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-block" id="learning">
+          <div class="section-header">
+            <p class="section-kicker">07 / Learning</p>
+            <h2>A staged path from conditioning to continual improvement</h2>
+          </div>
+          <div class="timeline">
+            <article><span>01</span><div><h3>SFT</h3><p>Teach the control policy: situation state, adaptive compute, verification, recovery, memory scope, and explicit tool actions.</p></div></article>
+            <article><span>02</span><div><h3>Rejection sampling</h3><p>Generate multiple trajectories and keep those that demonstrate good strategy selection and verified outcomes, not merely longer reasoning.</p></div></article>
+            <article><span>03</span><div><h3>Verifier-driven RL</h3><p>Where objective checks exist, reward successful outcomes using tests, compilers, exact answer checks, schemas, or evidence consistency.</p></div></article>
+            <article><span>04</span><div><h3>Memory utility learning</h3><p>Train memory writes against delayed usefulness: write → future retrieval → future task outcome, while tracking negative transfer.</p></div></article>
+            <article><span>05</span><div><h3>Agentic trajectory RL</h3><p>Train multi-step trajectories for planning, tool choice, observation handling, recovery, evidence quality, and task completion.</p></div></article>
+          </div>
+        </section>
+
+        <section class="content-block" id="evidence">
+          <div class="section-header">
+            <p class="section-kicker">08 / Current evidence</p>
+            <h2>What is implemented, what has been measured, and what is still a hypothesis</h2>
+          </div>
+          <div class="bench-grid">
+            <article class="bench-card metric-card">
+              <div class="bench-label">Training sources</div>
+              <strong>121</strong>
+              <p>SFT examples across the active training configuration.</p>
+            </article>
+            <article class="bench-card metric-card">
+              <div class="bench-label">Preference data</div>
+              <strong>132</strong>
+              <p>Preference pairs used by the current DPO configuration.</p>
+            </article>
+            <article class="bench-card metric-card">
+              <div class="bench-label">Held-out eval</div>
+              <strong>61</strong>
+              <p>Separated evaluation prompts covering reasoning, memory, recovery, evidence, and planning behavior.</p>
+            </article>
+          </div>
+
+          <div class="split-layout evidence-detail">
+            <div class="section-copy">
+              <h3>Recorded training runs</h3>
+              <p>Two historical SFT runs are committed in the repository. Both used Qwen/Qwen2.5-7B-Instruct, 55 examples, and 3 epochs.</p>
+            </div>
+            <div class="visual-panel">
+              <div class="mini-chart">
+                <div class="chart-bar" style="height: 58%"></div>
+                <div class="chart-bar" style="height: 58%"></div>
+                <div class="chart-bar" style="height: 41%"></div>
+                <div class="chart-bar" style="height: 41%"></div>
+              </div>
+              <div class="metric-row">
+                <div><strong>2.7754</strong><span>Run 1 train loss</span></div>
+                <div><strong>2.7748</strong><span>Run 2 train loss</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="notice">
+            <strong>Important:</strong> these are training artifacts, not evidence that the full architecture is already AGI.
+            The current repository does not report a validated end-to-end capability gain on the held-out evaluation set.
+          </div>
+        </section>
+
+        <section class="content-block" id="research">
+          <div class="section-header">
+            <p class="section-kicker">09 / Research basis</p>
+            <h2>The architecture is informed by modern reasoning, agent, search, and memory research</h2>
+          </div>
+          <div class="discovery-list research-list">
+            <a class="discovery-item link-item" href="https://www.nature.com/articles/s41586-025-09422-z" target="_blank" rel="noopener">
+              <span>DeepSeek-R1</span>
+              <p>Verifier-driven reinforcement learning provides a basis for rewarding useful reasoning behaviors such as verification and strategy adaptation on tasks with checkable outcomes.</p>
+            </a>
+            <a class="discovery-item link-item" href="https://arxiv.org/abs/2503.09516" target="_blank" rel="noopener">
+              <span>Search-R1</span>
+              <p>Search can be part of the learned reasoning loop rather than a separate lookup stage, supporting the design of retrieval-aware reasoning control.</p>
+            </a>
+            <a class="discovery-item link-item" href="https://arxiv.org/abs/2506.18096" target="_blank" rel="noopener">
+              <span>Deep Research Agents</span>
+              <p>Long-horizon research requires strategic querying, evidence assembly, cross-validation, and decisions about when evidence is sufficient.</p>
+            </a>
+            <a class="discovery-item link-item" href="https://arxiv.org/abs/2508.16665" target="_blank" rel="noopener">
+              <span>Verification survey</span>
+              <p>Test-time scaling is more reliable when generation is paired with explicit verification rather than treated as a single unconditional generation step.</p>
+            </a>
+            <div class="discovery-item">
+              <span>Memory research</span>
+              <p>The project research synthesis also draws from H-MEM, LightMem, AgeMem, and MemPO to motivate hierarchical retrieval, lightweight memory controllers, consolidation, and learned memory management.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-block" id="implementation">
+          <div class="section-header">
+            <p class="section-kicker">10 / Implementation</p>
+            <h2>What the repository can actually do today</h2>
+          </div>
+          <div class="info-grid">
+            <article class="info-card"><span class="card-number">CODE</span><h3>Code execution</h3><p>Executes Python inside the workspace with a 30-second timeout and returns stdout, stderr, and exit status for verification.</p></article>
+            <article class="info-card"><span class="card-number">FILES</span><h3>External state</h3><p>Read/write operations are constrained to the project workspace so the agent can maintain task state without treating the transcript as its only state store.</p></article>
+            <article class="info-card"><span class="card-number">MEMORY</span><h3>Durable lessons</h3><p>Structured memories are append-only JSONL records with type, scope, applicability, exclusions, evidence, and confidence fields.</p></article>
+          </div>
+          <div class="visual-panel implementation-panel">
+            <div class="panel-label">RUNTIME LOOP</div>
+            <pre class="code-block">post-trained model
+      ↓
+JSON action policy
+      ↓
+tool dispatcher
+  ├─ memory_search
+  ├─ memory_write
+  ├─ code_exec
+  ├─ file_read
+  └─ file_write
+      ↓
+observation injected back into context
+      ↓
+re-plan / recover / verify
+      ↓
+final</pre>
+          </div>
+        </section>
+
+        <section class="content-block" id="boundaries">
+          <div class="section-header">
+            <p class="section-kicker">11 / Boundaries</p>
+            <h2>Where the current system stops</h2>
+          </div>
+          <div class="notice dark">
+            <p><strong>Not AGI.</strong> The project is an experiment in an architecture for general-purpose, continually improving agents. A working tool loop and external memory do not by themselves establish general intelligence.</p>
+            <p><strong>Memory retrieval is still primitive.</strong> The current runtime performs lightweight lexical scoring over stored fields; the research direction calls for contextual and hierarchical retrieval.</p>
+            <p><strong>Continual learning is not automatic yet.</strong> Interaction logs are recorded as raw material for future learning passes; they are not automatically distilled back into model weights.</p>
+            <p><strong>Evaluation is not complete.</strong> The held-out set is designed to test control behavior, but the repository does not currently publish a validated score for it.</p>
+          </div>
+        </section>
+
+        <section class="content-block" id="quick-start">
+          <div class="section-header">
+            <p class="section-kicker">12 / Quick start</p>
+            <h2>Run the local experiment</h2>
+          </div>
+          <div class="code-grid">
+            <div class="visual-panel">
+              <div class="panel-label">TRAIN</div>
+              <pre class="code-block">python train.py \
+  --stage sft \
+  --base-model Qwen/Qwen2.5-7B-Instruct \
+  --output-dir checkpoints/lewi1-sft</pre>
+            </div>
+            <div class="visual-panel">
+              <div class="panel-label">RUN</div>
+              <pre class="code-block">export LEWI_MODEL=checkpoints/lewi1-sft
+export LEWI_BASE_MODEL=Qwen/Qwen2.5-7B-Instruct
+python api.py</pre>
+            </div>
+          </div>
+          <p class="footer-note">For the full local workflow, see the repository's <a href="../how%20to.md">training + agent test harness notes</a>.</p>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <span>LewiAI / Lewi 1 research documentation</span>
+    <a href="https://github.com/0scriptus0/agi-attempt" target="_blank" rel="noopener">Source ↗</a>
+  </footer>
+</body>
+</html>
