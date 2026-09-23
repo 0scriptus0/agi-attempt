@@ -63,6 +63,10 @@ The optional DPO configuration also includes `datasets/reasoning/lewi_cognitive_
 
 The held-out evaluation set remains separate from SFT data.
 
+## Documentation
+
+The current public documentation is available at `docs/` as a static site. It describes the implemented runtime, research architecture, training/evaluation evidence, and known limitations without using placeholder benchmark claims.
+
 ## Documentation map
 
 - `01_vision/` — project goals and core principles
